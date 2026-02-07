@@ -1,0 +1,7 @@
+[profile.default]
+src = '.'
+out = 'out'
+libs = ['../frontend/node_modules', 'lib']
+
+[rpc_endpoints]
+arc = "https://rpc.testnet.arc.network"
