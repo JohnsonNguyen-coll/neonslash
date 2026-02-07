@@ -15,7 +15,7 @@ const LandingPage = ({ onLaunch }: LandingPageProps) => {
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.8 }}
       >
-        <div className="logo" style={{ fontSize: '1.2rem', marginBottom: '1rem', justifyContent: 'center' }}>
+        <div className="logo" style={{ fontSize: '1.2rem', marginBottom: '3rem', justifyContent: 'center' }}>
           <Shield className="neon-text" /> 
           NEON<span className="neon-text">SLASH</span>
         </div>
