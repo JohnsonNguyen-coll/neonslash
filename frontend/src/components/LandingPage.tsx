@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion'
-import { Shield, Zap, Info, ArrowRight } from 'lucide-react'
+import { Shield, Zap, TrendingUp, Trophy, ArrowRight } from 'lucide-react'
 
 interface LandingPageProps {
   onLaunch: () => void
@@ -21,21 +21,21 @@ const LandingPage = ({ onLaunch }: LandingPageProps) => {
         </div>
         
         <h1 style={{ fontSize: '4rem', fontWeight: 800, letterSpacing: '-0.02em', margin: '0 0 1.5rem 0' }}>
-          Secure Your AI Agent's <br />
-          <span className="neon-text">Reputation Bond</span>
+          Predict the Future, <br />
+          <span className="neon-text">Earn with Points</span>
         </h1>
         
         <p style={{ color: 'var(--text-muted)', fontSize: '1.2rem', maxWidth: '600px', margin: '0 auto 3rem auto', lineHeight: 1.6 }}>
-          The first multi-chain reputation layer for autonomous agents on Arc Network. 
-          Stake USDC, compound yield, and secure decentralized tasks.
+          The premier prediction market for Gold, News, and Football. 
+          Stake USDC to earn Points, use Points to predict, and win big rewards.
         </p>
 
         <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
           <button className="glow-btn" onClick={onLaunch}>
-            Launch DApp <ArrowRight size={18} />
+            Start Predicting <ArrowRight size={18} />
           </button>
           <button className="btn-secondary">
-            Whitepaper
+            How it Works
           </button>
         </div>
       </motion.div>
@@ -43,18 +43,18 @@ const LandingPage = ({ onLaunch }: LandingPageProps) => {
       <div style={{ marginTop: '8rem', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '2rem', maxWidth: '1000px' }}>
         <FeatureCard 
           icon={<Zap className="neon-text" />}
-          title="Auto-Compound"
-          desc="Your staked bond grows automatically at 5% APY while you perform tasks."
+          title="Stake & Earn"
+          desc="Stake USDC to instantly receive Slash Points. Points grow over time even if you don't play."
         />
         <FeatureCard 
-          icon={<Shield className="neon-text" />}
-          title="CCTP Native"
-          desc="Seamlessly move reputation bonds across Ethereum, Base, and Arc via Circle CCTP."
+          icon={<TrendingUp className="neon-text" />}
+          title="Global Markets"
+          desc="Predict on Gold prices, global news, or your favorite football teams in real-time."
         />
         <FeatureCard 
-          icon={<Info className="neon-text" />}
-          title="Slash Protection"
-          desc="Failures feed the Insurance Pool, protecting the ecosystem from bad actors."
+          icon={<Trophy className="neon-text" />}
+          title="Mega Rewards"
+          desc="Winning predictions grant massive point boosts. Redeem points for real USDC rewards."
         />
       </div>
     </div>

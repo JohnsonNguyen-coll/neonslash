@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client'
 import App from './App'
 import './styles/globals.css'
 import '@rainbow-me/rainbowkit/styles.css'
+import { BrowserRouter } from 'react-router-dom'
 
 import { 
   getDefaultConfig, 
@@ -30,7 +31,7 @@ const arcTestnet: Chain = {
 
 const config = getDefaultConfig({
   appName: 'NeonSlashVault',
-  projectId: '9676742a784ca3b5a76e0539f375a004', 
+  projectId: import.meta.env.VITE_PROJECT_ID || '9676742a784ca3b5a76e0539f375a004', 
   chains: [arcTestnet, baseSepolia, sepolia],
   transports: {
     [arcTestnet.id]: http(),
@@ -50,7 +51,9 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
           accentColorForeground: 'black',
           borderRadius: 'medium',
         })}>
-          <App />
+          <BrowserRouter>
+            <App />
+          </BrowserRouter>
         </RainbowKitProvider>
       </QueryClientProvider>
     </WagmiProvider>

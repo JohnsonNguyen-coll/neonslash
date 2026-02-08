@@ -1,504 +1,288 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback } from 'react'
+import { 
+  useAccount, 
+  useReadContract, 
+  useWriteContract, 
+  useChainId,
+} from 'wagmi'
 import { ConnectButton } from '@rainbow-me/rainbowkit'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Shield, Activity, Layers, TrendingDown, ExternalLink, Lock, CheckCircle, Loader2, Zap, ArrowRightLeft, AlertCircle, X } from 'lucide-react'
-import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt, useChainId, useSwitchChain, useWalletClient } from 'wagmi'
-import { parseUnits, formatUnits } from 'viem'
-import { BridgeKit } from '@circle-fin/bridge-kit'
-import { createAdapterFromProvider } from '@circle-fin/adapter-viem-v2'
+import { 
+  Shield, 
+  TrendingUp, 
+  Trophy, 
+  Coins, 
+  Globe, 
+  Layers, 
+  Zap, 
+  CheckCircle,
+  X,
+  PlusCircle,
+  LayoutDashboard
+} from 'lucide-react'
+import { ARC_ID, VAULT_ADDRESS, VAULT_ABI } from '../constants'
 
-const VAULT_ABI = [
-  {"inputs":[{"internalType":"address","name":"agentAddr","type":"address"}],"name":"getEffectiveBond","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
-  {"inputs":[{"internalType":"uint256","name":"amount","type":"uint256"}],"name":"stake","outputs":[],"stateMutability":"nonpayable","type":"function"},
-  {"inputs":[{"internalType":"address","name":"","type":"address"}],"name":"agents","outputs":[{"internalType":"uint256","name":"principalBond","type":"uint256"},{"internalType":"uint256","name":"lastUpdateTimestamp","type":"uint256"},{"internalType":"uint256","name":"totalSlashed","type":"uint256"},{"internalType":"uint256","name":"tasksCompleted","type":"uint256"},{"internalType":"bool","name":"isActive","type":"bool"}],"stateMutability":"view","type":"function"},
-  {"inputs":[{"internalType":"uint256","name":"bondRequired","type":"uint256"},{"internalType":"uint256","name":"reward","type":"uint256"},{"internalType":"uint256","name":"duration","type":"uint256"}],"name":"acceptTask","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"nonpayable","type":"function"},
-  {"inputs":[],"name":"taskCount","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
-  {"inputs":[{"internalType":"uint256","name":"taskId","type":"uint256"},{"internalType":"bool","name":"success","type":"bool"},{"internalType":"uint256","name":"bonus","type":"uint256"}],"name":"finishTask","outputs":[],"stateMutability":"nonpayable","type":"function"},
-  {"inputs":[],"name":"owner","outputs":[{"internalType":"address","name":"","type":"address"}],"stateMutability":"view","type":"function"}
-] as const
+// --- COMPONENTS ---
 
-const USDC_ABI = [
-  {"inputs":[{"internalType":"address","name":"owner","type":"address"},{"internalType":"address","name":"spender","type":"address"}],"name":"allowance","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
-  {"inputs":[{"internalType":"address","name":"spender","type":"address"},{"internalType":"uint256","name":"value","type":"uint256"}],"name":"approve","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"nonpayable","type":"function"},
-  {"inputs":[{"internalType":"address","name":"account","type":"address"}],"name":"balanceOf","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"}
-] as const
+const PredictionCard = ({ id, market, showNotification, userPoints, refetchMarkets }: any) => {
+  const [betAmount, setBetAmount] = useState(Math.min(userPoints, 50) || 1)
+  const { writeContract, isPending } = useWriteContract()
 
-const VAULT_ADDRESS = import.meta.env.VITE_CONTRACT_ADDRESS || '0x9df74fad46edfe62b1339cef5166955f06a61999'
-const USDC_ADDRESS = import.meta.env.VITE_USDC_ADDRESS || '0x3600000000000000000000000000000000000000'
-const ARC_ID = 5042002
+  const handleBet = (side: boolean) => {
+    if (betAmount > userPoints) return showNotification("Low points balance!", "error")
+    writeContract({ 
+      address: VAULT_ADDRESS as `0x${string}`, 
+      abi: VAULT_ABI, 
+      functionName: 'placeBet', 
+      args: [BigInt(id), side, BigInt(betAmount)] 
+    }, {
+      onSuccess: () => {
+        showNotification("Bet placed successfully!", "success")
+        setTimeout(refetchMarkets, 2000)
+      }
+    })
+  }
 
-const Dashboard = () => {
-  const { address, isConnected, connector } = useAccount()
-  const { data: walletClient } = useWalletClient()
+  const total = Number(market.totalYes) + Number(market.totalNo)
+  const yesPct = total > 0 ? (Number(market.totalYes) / total * 100).toFixed(0) : '50'
+  const noPct = total > 0 ? (Number(market.totalNo) / total * 100).toFixed(0) : '50'
+
+  return (
+    <motion.div whileHover={{ y: -4 }} className="glass" style={{ padding: '1.5rem', opacity: market.resolved ? 0.7 : 1 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem' }}>
+        <span className="badge-green badge">{market.category}</span>
+        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+          {market.resolved ? "Market Resolved" : `Ends: ${new Date(Number(market.deadline) * 1000).toLocaleDateString()}`}
+        </span>
+      </div>
+      <h3 style={{ fontSize: '1.1rem', marginBottom: '1.5rem', lineHeight: 1.4 }}>{market.description}</h3>
+      
+      <div style={{ marginBottom: '1.5rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', marginBottom: '0.5rem', color: 'var(--text-muted)' }}>
+          <span>YES: {Number(market.totalYes).toLocaleString()} Pts</span>
+          <span>NO: {Number(market.totalNo).toLocaleString()} Pts</span>
+        </div>
+        <div style={{ height: '6px', background: 'rgba(255,255,255,0.1)', borderRadius: '10px', overflow: 'hidden', display: 'flex' }}>
+          <div style={{ width: `${yesPct}%`, background: 'var(--primary)' }} />
+          <div style={{ width: `${noPct}%`, background: '#334155' }} />
+        </div>
+      </div>
+
+      {!market.resolved && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          <div style={{ background: 'rgba(0,0,0,0.2)', padding: '1rem', borderRadius: '12px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.8rem' }}>
+                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Amount to Predict</span>
+                <span className="neon-text" style={{ fontWeight: 800 }}>{betAmount} PTS</span>
+            </div>
+            <input 
+              type="range" 
+              min="1" 
+              max={userPoints > 0 ? userPoints : 100} 
+              value={betAmount} 
+              onChange={e => setBetAmount(Number(e.target.value))} 
+              style={{ width: '100%', accentColor: 'var(--primary)', cursor: 'pointer' }}
+            />
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.6rem', color: 'var(--text-muted)', marginTop: '0.4rem' }}>
+                <span>1 Pt</span>
+                <span>Max: {userPoints} Pts</span>
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <button className="glow-btn" style={{ flex: 1, padding: '0.7rem', fontSize: '0.75rem', background: '#10b981', border: 'none', borderRadius: '8px' }} onClick={() => handleBet(true)} disabled={isPending || userPoints <= 0}>BET YES</button>
+            <button className="glow-btn" style={{ flex: 1, padding: '0.7rem', fontSize: '0.75rem', background: '#ef4444', border: 'none', borderRadius: '8px' }} onClick={() => handleBet(false)} disabled={isPending || userPoints <= 0}>BET NO</button>
+          </div>
+        </div>
+      )}
+      {market.resolved && (
+         <div style={{ textAlign: 'center', padding: '0.6rem', background: 'rgba(255,255,255,0.05)', borderRadius: '8px', fontSize: '0.85rem' }}>
+            Outcome: <span className="neon-text" style={{ fontWeight: 800 }}>{market.result ? 'YES' : 'NO'}</span>
+         </div>
+      )}
+    </motion.div>
+  )
+}
+
+const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void }) => {
+  const { address, isConnected } = useAccount()
   const chainId = useChainId()
-  const { switchChain } = useSwitchChain()
-  
-  const [displayBond, setDisplayBond] = useState(0)
-  const [stakeInput, setStakeInput] = useState('')
-  const [isBridging, setIsBridging] = useState(false)
-  const [notification, setNotification] = useState<{message: string, type: 'success' | 'error' | 'info'} | null>(null)
-  const [pendingAction, setPendingAction] = useState<'approve' | 'stake' | null>(null)
-  
   const isNotOnArc = chainId !== ARC_ID
+  
+  const [activeCategory, setActiveCategory] = useState('All')
+  const [notification, setNotification] = useState<{message: string, type: 'success' | 'error' | 'info'} | null>(null)
+  
+  // Real-time Prices from Public APIs
+  const [prices, setPrices] = useState({ BTC: 0, ETH: 0, SOL: 0, GOLD: 0, AAPL: 0, NVDA: 0 })
+
+  const fetchRealPrices = async () => {
+    try {
+      // 1. Crypto & Gold from Binance
+      const bResults = await Promise.all(['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'PAXGUSDT'].map(async (s) => {
+        try {
+          const r = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${s}`);
+          return await r.json();
+        } catch {
+          return { price: "0" };
+        }
+      }));
+      
+      // 2. Stocks from Finnhub with robust fallbacks
+      const getStockPrice = async (symbol: string, fallback: number) => {
+        try {
+          const r = await fetch(`https://finnhub.io/api/v1/quote?symbol=${symbol}&token=sandbox_c8v2pka201q9864234v0`);
+          if (!r.ok) return fallback;
+          const data = await r.json();
+          return parseFloat(data.c) || fallback;
+        } catch {
+          return fallback;
+        }
+      };
+
+      const aaplPrice = await getStockPrice('AAPL', 194.45);
+      const nvdaPrice = await getStockPrice('NVDA', 135.80);
+
+      setPrices({
+        BTC: parseFloat(bResults[0].price) || 0,
+        ETH: parseFloat(bResults[1].price) || 0,
+        SOL: parseFloat(bResults[2].price) || 0,
+        GOLD: parseFloat(bResults[3].price) || 0,
+        AAPL: aaplPrice,
+        NVDA: nvdaPrice
+      });
+    } catch (err) {
+      console.warn("Pricing engine warning:", err);
+    }
+  }
+
+  useEffect(() => {
+    fetchRealPrices()
+    const timer = setInterval(fetchRealPrices, 10000)
+    return () => clearInterval(timer)
+  }, [])
+
+  // Admin Form States
+  const [mDesc, setMDesc] = useState('')
+  const [mCat, setMCat] = useState('Gold')
+  const [mDur, setMDur] = useState('3600')
+  const [showAdmin, setShowAdmin] = useState(false)
 
   const showNotification = useCallback((message: string, type: 'success' | 'error' | 'info' = 'info') => {
     setNotification({ message, type })
     setTimeout(() => setNotification(null), 5000)
   }, [])
 
-  // USDC Balance Check
-  const { data: usdcBalanceRaw, refetch: refetchUSDC } = useReadContract({
-    address: USDC_ADDRESS as `0x${string}`,
-    abi: USDC_ABI,
-    functionName: 'balanceOf',
-    args: address ? [address] : undefined,
-    query: { enabled: !!address && !isNotOnArc }
-  })
+  // On-chain Data
+  const { data: pointsRaw } = useReadContract({ address: VAULT_ADDRESS as `0x${string}`, abi: VAULT_ABI, functionName: 'getPoints', args: address ? [address] : undefined, query: { enabled: !!address && !isNotOnArc } })
+  const { data: ownerAddress } = useReadContract({ address: VAULT_ADDRESS as `0x${string}`, abi: VAULT_ABI, functionName: 'owner', query: { enabled: !isNotOnArc } })
+  const { data: markets, refetch: refetchMarkets } = useReadContract({ address: VAULT_ADDRESS as `0x${string}`, abi: VAULT_ABI, functionName: 'getAllMarkets', query: { enabled: !isNotOnArc } })
 
-  // USDC Allowance Check
-  const { data: allowance, refetch: refetchAllowance } = useReadContract({
-    address: USDC_ADDRESS as `0x${string}`,
-    abi: USDC_ABI,
-    functionName: 'allowance',
-    args: address ? [address, VAULT_ADDRESS as `0x${string}`] : undefined,
-    query: { enabled: !!address && !isNotOnArc }
-  })
+  const isOwner = address && ownerAddress && address.toLowerCase() === (ownerAddress as string).toLowerCase()
+  const { writeContract, isPending: isTxPending } = useWriteContract()
 
-  const { data: contractOwner } = useReadContract({
-    address: VAULT_ADDRESS as `0x${string}`,
-    abi: VAULT_ABI,
-    functionName: 'owner',
-    query: { enabled: !isNotOnArc }
-  })
-
-  const isOwner = address && contractOwner && address.toLowerCase() === (contractOwner as string).toLowerCase()
-
-  const { data: agentData, refetch: refetchAgent } = useReadContract({
-    address: VAULT_ADDRESS as `0x${string}`,
-    abi: VAULT_ABI,
-    functionName: 'agents',
-    args: address ? [address] : undefined,
-    query: { enabled: !!address && !isNotOnArc }
-  })
-
-  const { data: effectiveBondRaw, refetch: refetchBond } = useReadContract({
-    address: VAULT_ADDRESS as `0x${string}`,
-    abi: VAULT_ABI,
-    functionName: 'getEffectiveBond',
-    args: address ? [address] : undefined,
-    query: { enabled: !!address && !isNotOnArc }
-  })
-
-  const { writeContract, data: hash, isPending: isTxPending } = useWriteContract()
-  const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({ hash })
-
-  const needsApprove = !isNotOnArc && allowance !== undefined && stakeInput && 
-    allowance < parseUnits(stakeInput, 6)
-
-  const refreshAll = useCallback(() => {
-    refetchBond()
-    refetchAllowance()
-    refetchAgent()
-    refetchUSDC()
-  }, [refetchBond, refetchAllowance, refetchAgent, refetchUSDC])
-
-  useEffect(() => {
-    if (effectiveBondRaw) {
-      const initialValue = parseFloat(formatUnits(effectiveBondRaw as bigint, 6))
-      setDisplayBond(initialValue)
-      const interval = setInterval(() => {
-        setDisplayBond(prev => prev + (prev * 0.05) / (365 * 24 * 3600))
-      }, 1000)
-      return () => clearInterval(interval)
-    }
-  }, [effectiveBondRaw])
-
-  const handleAction = async () => {
-    if (!stakeInput || !address || !walletClient) return
-    
-    if (isNotOnArc) {
-      setIsBridging(true)
-      try {
-        const kit = new BridgeKit()
-        const sourceChainMap: Record<number, string> = {
-          11155111: 'Ethereum_Sepolia',
-          84532: 'Base_Sepolia',
-          1: 'Ethereum',
-          8453: 'Base'
-        }
-        
-        const sourceChainName = sourceChainMap[chainId] || 'Ethereum_Sepolia'
-        const provider = await connector?.getProvider()
-        if (!provider) throw new Error("No provider found. Please reconnect your wallet.")
-
-        await kit.bridge({
-          from: {
-            adapter: await createAdapterFromProvider({ provider: provider as any }),
-            chain: sourceChainName as any
-          },
-          to: {
-            adapter: await createAdapterFromProvider({ provider: provider as any }),
-            chain: 'Arc_Testnet' as any,
-            recipientAddress: address as `0x${string}`
-          },
-          amount: stakeInput
-        })
-        
-        showNotification("CCTP Bridge Transaction Sent!", 'success')
-        switchChain({ chainId: ARC_ID })
-      } catch (error: any) {
-        showNotification(`Bridge failed: ${error?.message || "Unknown error"}`, 'error')
-      } finally {
-        setIsBridging(false)
-      }
-    } else {
-      if (needsApprove) {
-        setPendingAction('approve')
-        writeContract({
-          address: USDC_ADDRESS as `0x${string}`,
-          abi: USDC_ABI,
-          functionName: 'approve',
-          args: [VAULT_ADDRESS as `0x${string}`, parseUnits(stakeInput, 6)],
-        })
-      } else {
-        setPendingAction('stake')
-        writeContract({
-          address: VAULT_ADDRESS as `0x${string}`,
-          abi: VAULT_ABI,
-          functionName: 'stake',
-          args: [parseUnits(stakeInput, 6)],
-        })
-      }
-    }
+  const handleCreateMarket = () => {
+    if (!mDesc) return
+    writeContract({ address: VAULT_ADDRESS as `0x${string}`, abi: VAULT_ABI, functionName: 'createMarket', args: [mDesc, mCat, BigInt(mDur)] })
   }
 
-  useEffect(() => {
-    if (isConfirmed && !isNotOnArc) {
-      refreshAll()
-      if (pendingAction === 'approve') {
-        showNotification("USDC Approved! You can now stake.", 'success')
-      } else if (pendingAction === 'stake') {
-        showNotification("USDC Staked Successfully!", 'success')
-        setStakeInput('')
-      }
-      setPendingAction(null)
-    }
-  }, [isConfirmed, refreshAll, isNotOnArc, pendingAction, showNotification])
+  const filteredMarkets = markets ? (markets as any[]).map((m, idx) => ({ ...m, id: idx + 1 })).filter(m => activeCategory === 'All' || m.category === activeCategory) : []
 
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--bg-dark)', position: 'relative' }}>
+    <div style={{ minHeight: '100vh', background: 'var(--bg-dark)', color: 'white' }}>
       <AnimatePresence>
         {notification && (
-          <motion.div
-            initial={{ opacity: 0, y: -20, x: '-50%' }}
-            animate={{ opacity: 1, y: 20, x: '-50%' }}
-            exit={{ opacity: 0, y: -20, x: '-50%' }}
-            style={{
-              position: 'fixed',
-              top: 0,
-              left: '50%',
-              zIndex: 1000,
-              padding: '1rem 1.5rem',
-              borderRadius: '12px',
-              background: 'rgba(15, 23, 42, 0.95)',
-              backdropFilter: 'blur(12px)',
-              border: `1px solid ${notification.type === 'success' ? '#10b981' : notification.type === 'error' ? '#ef4444' : 'var(--primary)'}`,
-              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.75rem',
-              minWidth: '300px',
-              color: 'white'
-            }}
-          >
-            {notification.type === 'success' && <CheckCircle size={20} color="#10b981" />}
-            {notification.type === 'error' && <AlertCircle size={20} color="#ef4444" />}
-            {notification.type === 'info' && <Loader2 size={20} className="animate-spin" color="var(--primary)" />}
-            <span style={{ fontSize: '0.9rem', fontWeight: 500 }}>{notification.message}</span>
-            <button 
-              onClick={() => setNotification(null)}
-              style={{ marginLeft: 'auto', background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
-            >
-              <X size={16} />
-            </button>
+          <motion.div initial={{ opacity: 0, y: -20, x: '-50%' }} animate={{ opacity: 1, y: 20, x: '-50%' }} exit={{ opacity: 0, y: -20, x: '-50%' }} className="notification">
+            <CheckCircle size={20} color={notification.type === 'success' ? "#10b981" : "#ef4444"} />
+            <span>{notification.message}</span>
+            <button onClick={() => setNotification(null)} className="close-notify"><X size={16} /></button>
           </motion.div>
         )}
       </AnimatePresence>
 
-      <header>
-        <div className="logo">
-          <Shield className="neon-text" /> 
-          NEON<span className="neon-text">SLASH</span>
-        </div>
-        <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-          {isConnected && !isNotOnArc && (
-            <div className="glass" style={{ padding: '0.4rem 1rem', fontSize: '0.85rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <span style={{ color: 'var(--primary)' }}>{usdcBalanceRaw ? parseFloat(formatUnits(usdcBalanceRaw as bigint, 6)).toFixed(2) : '0.00'}</span>
-              <span style={{ color: 'var(--text-muted)', fontSize: '0.7rem' }}>USDC</span>
-            </div>
-          )}
-          <ConnectButton showBalance={isNotOnArc} />
-        </div>
-      </header>
-
       <main className="dashboard-container">
-        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '2rem' }}>
-          
-          {/* Left Column: Stats & Operations */}
-          <section>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1.5rem', marginBottom: '2rem' }}>
-              <StatCard 
-                label="Effective Bond (on Arc)" 
-                value={`${displayBond.toFixed(2)} USDC`} 
-                sub="+5% APY Compounding" 
-                icon={<TrendingDown size={16} style={{ transform: 'rotate(180deg)' }} />} 
-                highlight
-              />
-              <StatCard 
-                label="Tasks Completed" 
-                value={agentData?.[3]?.toString() || "0"} 
-                sub="Agent Excellence" 
-                icon={<Shield size={16} />} 
-              />
-              <StatCard 
-                label="Insurance Claims" 
-                value={`${agentData ? formatUnits(agentData[2], 6) : "0.00"} USDC`} 
-                sub="Slashed amount" 
-                icon={<CheckCircle size={16} />} 
-              />
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem', marginBottom: '2rem' }}>
+          <div className="glass price-card"><div className="label">BITCOIN</div><div className="value">${prices.BTC.toLocaleString()}</div></div>
+          <div className="glass price-card"><div className="label">ETHEREUM</div><div className="value">${prices.ETH.toLocaleString()}</div></div>
+          <div className="glass price-card"><div className="label">SOLANA</div><div className="value">${prices.SOL.toFixed(2)}</div></div>
+          <div className="glass price-card"><div className="label">GOLD</div><div className="value">${prices.GOLD.toFixed(2)}</div></div>
+        </div>
+
+        {showAdmin && isOwner && (
+          <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="glass admin-panel" style={{ padding: '2rem', marginBottom: '2rem', border: '1px solid var(--primary)' }}>
+            <h2 style={{ fontSize: '1.2rem', marginBottom: '1.5rem' }}>📢 Market Factory</h2>
+            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: '1rem', alignItems: 'end' }}>
+              <div className="form-group"><label>Question</label><input value={mDesc} onChange={e => setMDesc(e.target.value)} placeholder="Will Gold hit $3k?" /></div>
+              <div className="form-group"><label>Category</label><select value={mCat} onChange={e => setMCat(e.target.value)}><option value="Gold">Gold</option><option value="Stocks">Stocks</option><option value="News">News</option><option value="Football">Football</option></select></div>
+              <div className="form-group"><label>Duration (sec)</label><input value={mDur} onChange={e => setMDur(e.target.value)} type="number" /></div>
+              <button className="glow-btn" onClick={handleCreateMarket} disabled={isTxPending}>{isTxPending ? 'Creating...' : 'Create Market'}</button>
+            </div>
+          </motion.div>
+        )}
+
+        <div className="dashboard-grid">
+          <aside className="sidebar">
+            <div className="glass" style={{ padding: '1.5rem', marginBottom: '1.5rem' }}>
+              <h3 className="section-title"><Layers size={18} className="neon-text" /> Categories</h3>
+              {['All', 'Stocks', 'Gold', 'Football'].map(cat => (
+                <button key={cat} className={`nav-item ${activeCategory === cat ? 'active' : ''}`} onClick={() => setActiveCategory(cat)}>
+                  {cat === 'All' && <Globe size={16} />}
+                  {cat === 'Gold' && <Coins size={16} />}
+                  {cat === 'Stocks' && <TrendingUp size={16} />}
+                  {cat === 'Football' && <Trophy size={16} />}
+                  {cat}
+                </button>
+              ))}
             </div>
 
-            <h2 style={{ fontSize: '1.5rem', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-              <Activity className="neon-text" /> Reputation Nodes
-            </h2>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              <TaskCard 
-                id="8201" title="Data Consensus" bond="0.1" reward="0.5" status="Active" difficulty="Medium" duration={3600}
-                onSuccess={refreshAll} isNotOnArc={isNotOnArc} currentBond={displayBond} isOwner={isOwner}
-                showNotification={showNotification}
-              />
-              <TaskCard 
-                id="8205" title="Neural Audit" bond="1.0" reward="2.5" status="Priority" difficulty="Hard" duration={7200}
-                onSuccess={refreshAll} isNotOnArc={isNotOnArc} currentBond={displayBond} isOwner={isOwner}
-                showNotification={showNotification}
-              />
-              <TaskCard 
-                id="8210" title="API Indexing" bond="0.01" reward="0.1" status="Active" difficulty="Low" duration={1800}
-                onSuccess={refreshAll} isNotOnArc={isNotOnArc} currentBond={displayBond} isOwner={isOwner}
-                showNotification={showNotification}
-              />
+            <div className="glass highlight-box" style={{ padding: '1.5rem', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
+              <Zap size={24} className="neon-text" style={{ marginBottom: '1rem' }} />
+              <h3 style={{ marginBottom: '0.5rem' }}>Need Points?</h3>
+              <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '1.5rem' }}>Stake your USDC in the Neon Vault to generate prediction points instantly.</p>
+              <button className="glow-btn" style={{ width: '100%' }} onClick={() => onNavigate?.('vault')}>Enter Vault</button>
+            </div>
+
+            {isOwner && (
+               <button className="nav-item" style={{ marginTop: '1rem' }} onClick={() => setShowAdmin(!showAdmin)}>
+                 <PlusCircle size={16} /> {showAdmin ? 'Hide Admin' : 'Admin Panel'}
+               </button>
+            )}
+          </aside>
+
+          <section className="markets-grid">
+            <div className="header-flex">
+               <h2 className="title">{activeCategory} Markets</h2>
+               <div className="fee-info">Market Driven • Community Resolved</div>
+            </div>
+
+            <div className="cards-layout">
+              {filteredMarkets.length > 0 ? filteredMarkets.map(m => (
+                <PredictionCard key={m.id} id={m.id} market={m} showNotification={showNotification} userPoints={Number(pointsRaw || 0)} refetchMarkets={refetchMarkets} />
+              )) : (
+                <div className="empty-state">No active markets found.</div>
+              )}
             </div>
           </section>
-
-          {/* Right Column: Staking & Bridge */}
-          <aside>
-            <div className="glass" style={{ padding: '2rem' }}>
-              <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', margin: '0 0 1.5rem 0' }}>
-                <Layers size={18} className="neon-text" /> Reputation Staking
-              </h3>
-              
-              <div style={{ position: 'relative' }}>
-                <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Amount to Stake</label>
-                <input 
-                  type="number" 
-                  placeholder="0.00" 
-                  value={stakeInput}
-                  onChange={(e) => setStakeInput(e.target.value)}
-                  style={{ fontSize: '1.5rem', fontWeight: 600 }}
-                />
-                <span style={{ position: 'absolute', right: '1rem', top: '2.4rem', color: 'var(--primary)', fontWeight: 600 }}>USDC</span>
-              </div>
-
-              <button 
-                className="glow-btn" 
-                style={{ width: '100%', display: 'flex', justifyContent: 'center', gap: '0.5rem', background: isNotOnArc ? 'var(--secondary)' : 'var(--primary)' }}
-                onClick={handleAction}
-                disabled={isConfirming || isBridging || isTxPending || !isConnected}
-              >
-                {isBridging || isConfirming || isTxPending ? <Loader2 className="animate-spin" size={18} /> : 
-                 isNotOnArc ? <><ArrowRightLeft size={18} /> Bridge & Secure Bond</> : 
-                 needsApprove ? 'Approve USDC' : 'Stake & Secure Bond'}
-              </button>
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '1.5rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                <Zap size={12} />
-                Powered by Circle CCTP. Zero-slippage native transfers.
-              </div>
-            </div>
-
-            <div className="glass" style={{ padding: '1.5rem', marginTop: '1.5rem', border: '1px dashed var(--primary-glow)' }}>
-              <h4 style={{ margin: '0 0 0.75rem 0', fontSize: '1rem' }}>Decay Monitor</h4>
-              <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                Maintaining activity prevents bond decay. Inactive for 14 more days will trigger 1% bond slash.
-              </p>
-            </div>
-          </aside>
         </div>
       </main>
+
+      <style>{`
+        .price-card { padding: 1rem; text-align: center; }
+        .price-card .label { color: var(--text-muted); fontSize: 0.6rem; marginBottom: 0.3rem; }
+        .price-card .value { fontSize: 1.2rem; fontWeight: 800; }
+        .dashboard-container { padding: 2rem 4rem; max-width: 1400px; margin: 0 auto; }
+        .dashboard-grid { display: grid; gridTemplateColumns: 280px 1fr; gap: 2rem; }
+        .nav-item { width: 100%; text-align: left; padding: 0.75rem 1rem; background: none; border: 1px solid transparent; border-radius: 8px; cursor: pointer; color: var(--text-muted); display: flex; align-items: center; gap: 0.5rem; transition: 0.2s; marginBottom: 0.5rem; }
+        .nav-item:hover { background: rgba(16, 185, 129, 0.05); color: white; }
+        .nav-item.active { background: rgba(16, 185, 129, 0.1); border-color: var(--primary); color: var(--primary); fontWeight: 600; }
+        .header-flex { display: flex; justify-content: space-between; align-items: baseline; marginBottom: 2rem; }
+        .title { fontSize: 1.8rem; fontWeight: 800; margin: 0; }
+        .fee-info { fontSize: 0.65rem; color: var(--primary); text-transform: uppercase; letter-spacing: 0.05em; fontWeight: 700; }
+        .cards-layout { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1.5rem; }
+        .empty-state { grid-column: 1 / -1; text-align: center; padding: 4rem; color: var(--text-muted); border: 2px dashed var(--border); border-radius: 16px; }
+        .admin-panel input, .admin-panel select { width: 100%; background: rgba(0,0,0,0.3); border: 1px solid var(--border); padding: 0.8rem; border-radius: 8px; color: white; margin-top: 0.4rem; }
+        .form-group label { fontSize: 0.7rem; color: var(--text-muted); text-transform: uppercase; }
+        @media (max-width: 1024px) { .dashboard-grid { grid-template-columns: 1fr; } .cards-layout { grid-template-columns: 1fr; } }
+      `}</style>
     </div>
-  )
-}
-
-const StatCard = ({ label, value, sub, icon, highlight }: any) => (
-  <div className="glass" style={{ padding: '1.5rem', position: 'relative', overflow: 'hidden' }}>
-    {highlight && <div style={{ position: 'absolute', top: 0, left: 0, width: '4px', height: '100%', background: 'var(--primary)' }} />}
-    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem' }}>
-      <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 500 }}>{label}</span>
-      <span className="neon-text">{icon}</span>
-    </div>
-    <div style={{ fontSize: '1.5rem', fontWeight: 800, marginBottom: '0.25rem' }}>{value}</div>
-    <div style={{ fontSize: '0.7rem', color: highlight ? 'var(--primary)' : 'var(--text-muted)' }}>{sub}</div>
-  </div>
-)
-
-const TaskCard = ({ id, title, bond, reward, status, difficulty, duration, onSuccess, isNotOnArc, currentBond, isOwner, showNotification }: any) => {
-  const { writeContract, data: hash, isPending } = useWriteContract()
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash })
-  const lastDeployHash = useRef<string | null>(null)
-  const lastFinishHash = useRef<string | null>(null)
-  
-  const [taskState, setTaskState] = useState<'idle' | 'processing' | 'done'>('idle')
-  const [countdown, setCountdown] = useState(0)
-
-  const { data: latestTaskCount } = useReadContract({
-    address: VAULT_ADDRESS as `0x${string}`,
-    abi: VAULT_ABI,
-    functionName: 'taskCount',
-    query: { enabled: isSuccess && taskState === 'processing' }
-  })
-
-  useEffect(() => {
-    // Stage 1: DEPLOY SUCCESS -> Start Timer
-    if (isSuccess && hash && lastDeployHash.current !== hash && taskState === 'idle') {
-      lastDeployHash.current = hash
-      showNotification(`Task for ${title} submitted! Starting verification...`, 'info')
-      setTaskState('processing')
-      setCountdown(10)
-      onSuccess()
-    }
-    // Stage 2: FINISH SUCCESS -> Reset
-    if (isSuccess && hash && lastDeployHash.current !== hash && lastFinishHash.current !== hash && taskState === 'processing') {
-      lastFinishHash.current = hash
-      showNotification(`Task ${title} Secured! Bond Released.`, 'success')
-      setTaskState('done')
-      setTimeout(() => {
-        setTaskState('idle')
-        onSuccess()
-      }, 3000)
-    }
-  }, [isSuccess, hash, title, onSuccess, taskState, showNotification])
-
-  useEffect(() => {
-    let timer: any
-    if (countdown > 0) {
-      timer = setTimeout(() => setCountdown(prev => prev - 1), 1000)
-    } else if (countdown === 0 && taskState === 'processing') {
-      handleSimulateComplete()
-    }
-    return () => clearTimeout(timer)
-  }, [countdown, taskState])
-
-  const handleSimulateComplete = async () => {
-    if (!latestTaskCount) return
-    if (!isOwner) {
-      setTaskState('idle')
-      showNotification("Permission Denied: Automated completion requires Admin wallet.", 'error')
-      return
-    }
-    
-    writeContract({
-      address: VAULT_ADDRESS as `0x${string}`,
-      abi: VAULT_ABI,
-      functionName: 'finishTask',
-      args: [latestTaskCount, true, 0n],
-    })
-  }
-
-  const isInsufficient = parseFloat(bond) > currentBond
-
-  const handleDeploy = () => {
-    if (isNotOnArc) {
-      showNotification("Network Error: Please switch to Arc Network.", 'error')
-      return
-    }
-    if (isInsufficient) {
-      showNotification("Insufficient Funds: Please stake more USDC.", 'error')
-      return
-    }
-    writeContract({
-      address: VAULT_ADDRESS as `0x${string}`,
-      abi: VAULT_ABI,
-      functionName: 'acceptTask',
-      args: [parseUnits(bond, 6), parseUnits(reward, 6), BigInt(duration)],
-    })
-  }
-
-  return (
-    <motion.div 
-      whileHover={{ x: isInsufficient ? 0 : 4 }} 
-      className="glass" 
-      style={{ 
-        padding: '1.25rem', 
-        opacity: isInsufficient ? 0.7 : 1,
-        borderLeft: taskState === 'processing' ? '4px solid var(--primary)' : 
-                   taskState === 'done' ? '4px solid var(--success, #10b981)' : '' 
-      }}
-    >
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div>
-          <h4 style={{ margin: 0, color: isInsufficient ? 'var(--text-muted)' : 'white' }}>
-            {title} 
-            {taskState === 'processing' && <span className="neon-text" style={{ fontSize: '0.7rem' }}> (VERIFYING...)</span>}
-            {taskState === 'done' && <span style={{ fontSize: '0.7rem', color: '#10b981' }}> (SECURED)</span>}
-          </h4>
-          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>ID: #{id} | {difficulty}</span>
-        </div>
-        {!isOwner && taskState === 'processing' ? (
-           <span className="badge badge-warning" style={{ fontSize: '0.6rem' }}>Requires Admin</span>
-        ) : (
-           <span className={`badge ${status === 'Priority' ? 'badge-warning' : 'badge-green'}`}>{status}</span>
-        )}
-      </div>
-
-      {taskState === 'processing' && (
-        <div style={{ marginTop: '0.5rem', height: '2px', background: 'rgba(255,255,255,0.1)', overflow: 'hidden' }}>
-          <motion.div 
-            initial={{ width: '0%' }}
-            animate={{ width: '100%' }}
-            transition={{ duration: 10, ease: 'linear' }}
-            style={{ height: '100%', background: 'var(--primary)' }}
-          />
-        </div>
-      )}
-
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid var(--border)' }}>
-        <div style={{ fontSize: '0.85rem', display: 'flex', gap: '1rem' }}>
-          <span style={{ color: isInsufficient ? '#ef4444' : 'inherit' }}>
-            <Lock size={12} style={{ display: 'inline' }} /> Bond: {bond} USDC
-          </span>
-          <span style={{ color: 'var(--primary)' }}>Reward: {reward} USDC</span>
-        </div>
-        <button 
-          className={isInsufficient ? "btn-disabled" : "btn-secondary"} 
-          style={{ 
-            padding: '0.4rem 1rem', 
-            fontSize: '0.8rem', 
-            display: 'flex', 
-            alignItems: 'center', 
-            gap: '0.5rem',
-            cursor: (isInsufficient || taskState === 'processing') ? 'not-allowed' : 'pointer',
-            background: isInsufficient ? '#334155' : taskState === 'processing' ? 'rgba(var(--primary-rgb), 0.2)' : ''
-          }}
-          onClick={handleDeploy}
-          disabled={isPending || isConfirming || isInsufficient || taskState === 'processing'}
-        >
-          {isPending || isConfirming ? <Loader2 className="animate-spin" size={14} /> : 
-           taskState === 'processing' ? `Finalizing ${countdown}s` :
-           taskState === 'done' ? <CheckCircle size={14} /> :
-           isInsufficient ? 'Low Bond' : 'Deploy'}
-        </button>
-      </div>
-    </motion.div>
   )
 }
 
