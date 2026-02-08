@@ -37,7 +37,10 @@ function App() {
   if (!isLaunched && location.pathname !== '/docs') {
     return (
       <Routes>
-        <Route path="/" element={<LandingPage onLaunch={() => setIsLaunched(true)} />} />
+        <Route path="/" element={<LandingPage onLaunch={() => {
+          setIsLaunched(true)
+          navigate('/dashboard')
+        }} />} />
         <Route path="/docs" element={<Docs />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
@@ -114,7 +117,10 @@ function App() {
       {/* Page Content with Routing */}
       <div className="content">
         <Routes>
-          <Route path="/" element={<LandingPage onLaunch={() => setIsLaunched(true)} />} />
+          <Route path="/" element={<LandingPage onLaunch={() => {
+            setIsLaunched(true)
+            navigate('/dashboard')
+          }} />} />
           <Route path="/docs" element={<Docs />} />
           <Route path="/dashboard" element={<Dashboard onNavigate={(v) => navigate(`/${v}`)} />} />
           <Route path="/bridge" element={<Bridge />} />
