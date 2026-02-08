@@ -80,7 +80,7 @@ const RewardCenter = () => {
           className="nft-preview-container"
         >
           <div className="glass" style={{ padding: '1rem', borderRadius: '24px', position: 'relative', overflow: 'hidden' }}>
-            <div style={{ position: 'relative', z_index: 2 }}>
+            <div style={{ position: 'relative', zIndex: 2 }}>
               <img 
                 src={nftImage} 
                 alt="Neon NFT" 
