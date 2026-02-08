@@ -223,12 +223,18 @@ const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void }) => {
   const isNotOnArc = chainId !== ARC_ID
 
   const [activeCategory, setActiveCategory] = useState('All')
+  const [currentPage, setCurrentPage] = useState(1)
+  const MARKETS_PER_PAGE = 6
   const [notification, setNotification] = useState<{message: string, type: 'success' | 'error' | 'info'} | null>(null)
 
   const showNotification = useCallback((message: string, type: 'success' | 'error' | 'info' = 'info') => {
     setNotification({ message, type })
     setTimeout(() => setNotification(null), 5000)
   }, [])
+
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [activeCategory])
 
   // Real-time Prices from Public APIs
   const [prices, setPrices] = useState({ BTC: 0, ETH: 0, SOL: 0, GOLD: 0, AAPL: 0, NVDA: 0 })
@@ -283,6 +289,9 @@ const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void }) => {
   const { data: markets, refetch: refetchMarkets } = useReadContract({ address: VAULT_ADDRESS as `0x${string}`, abi: VAULT_ABI, functionName: 'getAllMarkets', query: { enabled: !isNotOnArc } })
 
   const filteredMarkets = markets ? (markets as any[]).map((m, idx) => ({ ...m, id: idx + 1 })).filter(m => activeCategory === 'All' || m.category === activeCategory) : []
+  
+  const totalPages = Math.max(1, Math.ceil(filteredMarkets.length / MARKETS_PER_PAGE))
+  const paginatedMarkets = filteredMarkets.slice((currentPage - 1) * MARKETS_PER_PAGE, currentPage * MARKETS_PER_PAGE)
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg-dark)', color: 'white' }}>
@@ -344,33 +353,72 @@ const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void }) => {
                   </div>
                 ) : <div className="empty-state">No betting history found.</div>
               ) : (
-                filteredMarkets.length > 0 ? filteredMarkets.map(m => (
+                paginatedMarkets.length > 0 ? paginatedMarkets.map(m => (
                   <PredictionCard key={m.id} id={m.id} market={m} showNotification={showNotification} userPoints={Number(pointsRaw || 0)} refetchMarkets={refetchMarkets} />
                 )) : (
                   <div className="empty-state">No active markets found.</div>
                 )
               )}
             </div>
+
+            {activeCategory !== 'History' && filteredMarkets.length > MARKETS_PER_PAGE && (
+              <div className="pagination">
+                <button 
+                  disabled={currentPage === 1} 
+                  onClick={() => setCurrentPage(p => p - 1)}
+                  className="page-btn"
+                >
+                  Previous
+                </button>
+                <div className="page-numbers">
+                  {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
+                    <button 
+                      key={page} 
+                      onClick={() => setCurrentPage(page)}
+                      className={`page-num ${currentPage === page ? 'active' : ''}`}
+                    >
+                      {page}
+                    </button>
+                  ))}
+                </div>
+                <button 
+                  disabled={currentPage === totalPages} 
+                  onClick={() => setCurrentPage(p => p + 1)}
+                  className="page-btn"
+                >
+                  Next
+                </button>
+              </div>
+            )}
           </section>
         </div>
       </main>
 
       <style>{`
         .price-card { padding: 1rem; text-align: center; }
-        .price-card .label { color: var(--text-muted); fontSize: 0.6rem; marginBottom: 0.3rem; }
-        .price-card .value { fontSize: 1.2rem; fontWeight: 800; }
+        .price-card .label { color: var(--text-muted); font-size: 0.6rem; margin-bottom: 0.3rem; }
+        .price-card .value { font-size: 1.2rem; font-weight: 800; }
         .dashboard-container { padding: 2rem 4rem; max-width: 1400px; margin: 0 auto; }
-        .dashboard-grid { display: grid; gridTemplateColumns: 280px 1fr; gap: 2rem; }
-        .nav-item { width: 100%; text-align: left; padding: 0.75rem 1rem; background: none; border: 1px solid transparent; border-radius: 8px; cursor: pointer; color: var(--text-muted); display: flex; align-items: center; gap: 0.5rem; transition: 0.2s; marginBottom: 0.5rem; }
+        .dashboard-grid { display: grid; grid-template-columns: 280px 1fr; gap: 2rem; }
+        .nav-item { width: 100%; text-align: left; padding: 0.75rem 1rem; background: none; border: 1px solid transparent; border-radius: 8px; cursor: pointer; color: var(--text-muted); display: flex; align-items: center; gap: 0.5rem; transition: 0.2s; margin-bottom: 0.5rem; }
         .nav-item:hover { background: rgba(16, 185, 129, 0.05); color: white; }
-        .nav-item.active { background: rgba(16, 185, 129, 0.1); border-color: var(--primary); color: var(--primary); fontWeight: 600; }
-        .header-flex { display: flex; justify-content: space-between; align-items: baseline; marginBottom: 2rem; }
-        .title { fontSize: 1.8rem; fontWeight: 800; margin: 0; }
-        .fee-info { fontSize: 0.65rem; color: var(--primary); text-transform: uppercase; letter-spacing: 0.05em; fontWeight: 700; }
+        .nav-item.active { background: rgba(16, 185, 129, 0.1); border-color: var(--primary); color: var(--primary); font-weight: 600; }
+        .header-flex { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; flex-wrap: wrap; gap: 1rem; }
+        .title { font-size: 1.8rem; font-weight: 800; margin: 0; }
+        .fee-info { font-size: 0.65rem; color: var(--primary); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 700; opacity: 0.8; }
         .cards-layout { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1.5rem; }
         .empty-state { grid-column: 1 / -1; text-align: center; padding: 4rem; color: var(--text-muted); border: 2px dashed var(--border); border-radius: 16px; }
+        .pagination { display: flex; justify-content: center; align-items: center; gap: 1rem; margin-top: 3rem; margin-bottom: 2rem; }
+        .page-btn { padding: 0.6rem 1.2rem; background: rgba(255,255,255,0.05); border: 1px solid var(--border); border-radius: 8px; color: white; cursor: pointer; font-size: 0.8rem; transition: 0.2s; }
+        .page-btn:hover:not(:disabled) { background: rgba(16, 185, 129, 0.1); border-color: var(--primary); }
+        .page-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .page-numbers { display: flex; gap: 0.5rem; }
+        .page-num { width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; background: none; border: 1px solid transparent; border-radius: 6px; color: var(--text-muted); cursor: pointer; font-size: 0.8rem; }
+        .page-num.active { background: var(--primary); color: #000; font-weight: 700; }
+        .notification { position: fixed; top: 20px; left: 50%; transform: translateX(-50%); background: #0a0f1a; border: 1px solid var(--border); padding: 1rem 1.5rem; border-radius: 12px; display: flex; align-items: center; gap: 1rem; z-index: 10000; box-shadow: 0 10px 40px rgba(0,0,0,0.5); }
+        .close-notify { background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 0.2rem; display: flex; align-items: center; justify-content: center; }
         .admin-panel input, .admin-panel select { width: 100%; background: rgba(0,0,0,0.3); border: 1px solid var(--border); padding: 0.8rem; border-radius: 8px; color: white; margin-top: 0.4rem; }
-        .form-group label { fontSize: 0.7rem; color: var(--text-muted); text-transform: uppercase; }
+        .form-group label { font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; }
         @media (max-width: 1024px) { .dashboard-grid { grid-template-columns: 1fr; } .cards-layout { grid-template-columns: 1fr; } }
       `}</style>
     </div>

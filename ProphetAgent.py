@@ -55,25 +55,58 @@ class ProphetAgent:
         except:
             return ["Bitcoin Momentum: Experts predict $150k target", "AI Spending Surge impacts Amazon share value", "Meta faces AI-related cost concerns"]
 
+    def get_active_descriptions(self):
+        """Fetch descriptions of recent markets to skip duplicates"""
+        try:
+            count = self.contract.functions.marketCount().call()
+            # Check last 30 markets to avoid repetition
+            start = max(1, count - 29)
+            descriptions = []
+            for i in range(start, count + 1):
+                m = self.contract.functions.markets(i).call()
+                # m[0] is description, m[4] is resolved status
+                if not m[4]: # Only skip if the market isn't resolved yet
+                    descriptions.append(m[0])
+            return set(descriptions)
+        except Exception as e:
+            print(f"Error fetching active markets: {e}")
+            return set()
+
     def create_real_markets(self):
-        print("🚀 Deploying REAL-WORLD markets for today...")
+        print("🚀 Checking context to deploy unique markets...")
+        active_descs = self.get_active_descriptions()
         
         # 1. Real Football Fixtures
         fixture = random.choice(self.fixtures)
         desc = f"Match Day: {fixture[0]}. Will {fixture[0].split(' vs ')[0]} win?"
-        self.deploy(desc, "Football")
+        if desc not in active_descs:
+            self.deploy(desc, "Football")
+        else:
+            print(f"⏩ Skipping duplicate football: {fixture[0]}")
 
         # 2. Latest Financial News
         news = self.fetch_latest_news()
-        for headline in random.sample(news, min(2, len(news))):
+        deployed_news_count = 0
+        for headline in random.sample(news, min(3, len(news))):
+            if deployed_news_count >= 2: break
             desc = f"News: '{headline}' - Will this asset surge +2% next hour?"
-            self.deploy(desc, "Stocks")
+            if desc not in active_descs:
+                self.deploy(desc, "Stocks")
+                deployed_news_count += 1
+            else:
+                print(f"⏩ Skipping duplicate news: {headline[:30]}...")
 
         # 3. Dynamic Crypto Target
         btc_intel = self.get_intel("BTC-USD")
         if btc_intel:
-            target = round(btc_intel['price'] * 1.015, 2)
-            self.deploy(f"Will Bitcoin (BTC) break resistance at ${target} in 2 hours?", "Stocks")
+            # Add a bit of randomness to the target to keep it fresh
+            variation = random.uniform(1.01, 1.02)
+            target = round(btc_intel['price'] * variation, 2)
+            desc = f"Will Bitcoin (BTC) break resistance at ${target} in 2 hours?"
+            if desc not in active_descs:
+                self.deploy(desc, "Stocks")
+            else:
+                print("⏩ Skipping near-identical BTC target")
 
     def get_intel(self, symbol):
         try:
@@ -99,8 +132,11 @@ class ProphetAgent:
 
     def run(self):
         while True:
-            self.create_real_markets()
-            print("Wave deployed. Waiting 15 mins...")
+            try:
+                self.create_real_markets()
+            except Exception as e:
+                print(f"Run Error: {e}")
+            print("Cycle complete. Waiting 15 mins...")
             time.sleep(900)
 
 import threading
