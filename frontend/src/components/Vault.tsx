@@ -131,14 +131,39 @@ const Vault = () => {
 
   return (
     <div className="vault-page" style={{ padding: '2rem', maxWidth: '1000px', margin: '0 auto', position: 'relative' }}>
-      <header style={{ textAlign: 'center', marginBottom: '4rem' }}>
-        <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}>
-          <div style={{ display: 'inline-flex', padding: '1rem', borderRadius: '50%', background: 'rgba(16, 185, 129, 0.1)', marginBottom: '1.5rem' }}>
+      <header style={{ 
+        display: 'flex', 
+        flexDirection: 'column', 
+        alignItems: 'center', 
+        textAlign: 'center', 
+        marginBottom: '4rem',
+        gap: '1rem' 
+      }}>
+        <motion.div 
+          initial={{ scale: 0.8, opacity: 0 }} 
+          animate={{ scale: 1, opacity: 1 }}
+          transition={{ duration: 0.5 }}
+        >
+          <div style={{ 
+            display: 'inline-flex', 
+            padding: '1.2rem', 
+            borderRadius: '50%', 
+            background: 'rgba(16, 185, 129, 0.1)', 
+            border: '1px solid rgba(16, 185, 129, 0.2)',
+            boxShadow: '0 0 20px rgba(16, 185, 129, 0.1)' 
+          }}>
             <Lock size={48} className="neon-text" />
           </div>
         </motion.div>
-        <h1 style={{ fontSize: '2.5rem', fontWeight: 900, marginBottom: '1rem' }}>The <span className="neon-text">Neon</span> Vault</h1>
-        <p style={{ color: 'var(--text-muted)', fontSize: '1.1rem' }}>Stake USDC: 5 Pts per USDC + 1 Pt/Day yield (30-day Lock)</p>
+        
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+          <h1 style={{ fontSize: '3rem', fontWeight: 900, margin: 0, letterSpacing: '-0.02em' }}>
+            The <span className="neon-text">Neon</span> Vault
+          </h1>
+          <p style={{ color: 'var(--text-muted)', fontSize: '1.1rem', margin: 0, opacity: 0.8 }}>
+            Stake USDC: 5 Pts per USDC + 1 Pt/Day yield (30-day Lock)
+          </p>
+        </div>
       </header>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1.5rem', marginBottom: '1.5rem' }}>
