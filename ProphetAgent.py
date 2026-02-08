@@ -7,7 +7,11 @@ import yfinance as ticker
 from web3 import Web3
 from dotenv import load_dotenv
 
-load_dotenv(dotenv_path='./frontend/.env.local')
+# Load environment variables
+if os.path.exists('./frontend/.env.local'):
+    load_dotenv(dotenv_path='./frontend/.env.local')
+else:
+    load_dotenv() # Fallback for production (Render/Railway inject env vars directly)
 
 RPC_URL = os.getenv('VITE_ARC_RPC_URL', 'https://rpc.testnet.arc.network')
 CONTRACT_ADDRESS = os.getenv('VITE_CONTRACT_ADDRESS', '').replace('"', '').replace("'", "").strip()

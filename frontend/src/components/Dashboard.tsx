@@ -81,6 +81,50 @@ const ClaimButton = ({ marketId, marketResult, showNotification, refetchMarkets 
   )
 }
 
+const HistoryItem = ({ market, address, showNotification, refetchMarkets }: any) => {
+  const { data: bet } = useReadContract({
+    address: VAULT_ADDRESS as `0x${string}`,
+    abi: VAULT_ABI,
+    functionName: 'userBets',
+    args: [BigInt(market.id), address as `0x${string}`],
+  })
+
+  if (!bet) return null
+  const [amount, prediction, claimed] = bet as [bigint, boolean, boolean]
+  if (amount === 0n) return null
+
+  const isWinner = market.resolved && (prediction === market.result)
+  
+  return (
+    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="glass" style={{ padding: '1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div style={{ flex: 1 }}>
+        <div style={{ display: 'flex', gap: '0.8rem', alignItems: 'center', marginBottom: '0.5rem' }}>
+          <span className="badge" style={{ background: 'rgba(255,255,255,0.05)', fontSize: '0.6rem' }}>{market.category}</span>
+          <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Market ID: #{market.id}</span>
+        </div>
+        <h4 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '0.8rem' }}>{market.description}</h4>
+        <div style={{ display: 'flex', gap: '1.5rem', fontSize: '0.8rem' }}>
+           <div>Predicted: <span className="neon-yellow" style={{ fontWeight: 800 }}>{prediction ? 'YES' : 'NO'}</span></div>
+           <div>Stake: <span style={{ fontWeight: 700 }}>{Number(amount).toLocaleString()} PTS</span></div>
+        </div>
+      </div>
+
+      <div style={{ textAlign: 'right', minWidth: '140px' }}>
+        {!market.resolved ? (
+          <div className="badge" style={{ background: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6' }}>STILL ACTIVE</div>
+        ) : isWinner ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', alignItems: 'flex-end' }}>
+             <span className="badge-green badge">YOU WON</span>
+             <ClaimButton marketId={market.id} marketResult={market.result} showNotification={showNotification} refetchMarkets={refetchMarkets} />
+          </div>
+        ) : (
+          <div className="badge" style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444' }}>LOST</div>
+        )}
+      </div>
+    </motion.div>
+  )
+}
+
 const PredictionCard = ({ id, market, showNotification, userPoints, refetchMarkets }: any) => {
   const [betAmount, setBetAmount] = useState(Math.min(userPoints, 50) || 1)
   const { writeContract, isPending } = useWriteContract()
@@ -293,10 +337,11 @@ const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void }) => {
         <div className="dashboard-grid">
           <aside className="sidebar">
             <div className="glass" style={{ padding: '1.5rem', marginBottom: '1.5rem' }}>
-              <h3 className="section-title"><Layers size={18} className="neon-text" /> Categories</h3>
-              {['All', 'Stocks', 'Gold', 'Football'].map(cat => (
+              <h3 className="section-title"><Layers size={18} className="neon-text" /> Navigation</h3>
+              {['All', 'History', 'Stocks', 'Gold', 'Football'].map(cat => (
                 <button key={cat} className={`nav-item ${activeCategory === cat ? 'active' : ''}`} onClick={() => setActiveCategory(cat)}>
                   {cat === 'All' && <Globe size={16} />}
+                  {cat === 'History' && <HistoryIcon size={16} />}
                   {cat === 'Gold' && <Coins size={16} />}
                   {cat === 'Stocks' && <TrendingUp size={16} />}
                   {cat === 'Football' && <Trophy size={16} />}
@@ -312,25 +357,6 @@ const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void }) => {
               <button className="glow-btn" style={{ width: '100%' }} onClick={() => onNavigate?.('vault')}>Enter Vault</button>
             </div>
 
-            <div className="glass" style={{ padding: '1.5rem' }}>
-              <h3 className="section-title" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.9rem', marginBottom: '1rem' }}>
-                <HistoryIcon size={16} className="neon-yellow" /> History
-              </h3>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem', maxHeight: '300px', overflowY: 'auto', paddingRight: '0.5rem' }}>
-                {markets ? (markets as any[])
-                  .map((m, idx) => ({ ...m, id: idx + 1 }))
-                  .filter(m => m.resolved)
-                  .slice(-5)
-                  .reverse()
-                  .map(m => (
-                    <div key={m.id} style={{ fontSize: '0.75rem', padding: '0.75rem', background: 'rgba(255,255,255,0.02)', borderRadius: '8px', borderLeft: '2px solid var(--primary)' }}>
-                      <div style={{ color: 'var(--text-muted)', fontSize: '0.65rem', marginBottom: '0.2rem' }}>{m.category}</div>
-                      <div style={{ fontWeight: 600, lineHeight: 1.3, marginBottom: '0.4rem' }}>{m.description.slice(0, 40)}...</div>
-                      <div className="neon-text" style={{ fontSize: '0.65rem', fontWeight: 800 }}>RESULT: {m.result ? 'YES' : 'NO'}</div>
-                    </div>
-                  )) : <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>No settled markets yet.</div>}
-              </div>
-            </div>
 
             {isOwner && (
                <button className="nav-item" style={{ marginTop: '1rem' }} onClick={() => setShowAdmin(!showAdmin)}>
@@ -345,11 +371,21 @@ const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void }) => {
                <div className="fee-info">Market Driven • Community Resolved</div>
             </div>
 
-            <div className="cards-layout">
-              {filteredMarkets.length > 0 ? filteredMarkets.map(m => (
-                <PredictionCard key={m.id} id={m.id} market={m} showNotification={showNotification} userPoints={Number(pointsRaw || 0)} refetchMarkets={refetchMarkets} />
-              )) : (
-                <div className="empty-state">No active markets found.</div>
+            <div className="cards-layout" style={{ gridTemplateColumns: activeCategory === 'History' ? '1fr' : 'repeat(2, 1fr)' }}>
+              {activeCategory === 'History' ? (
+                markets && (markets as any[]).length > 0 ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                    {(markets as any[]).map((m, idx) => ({ ...m, id: idx + 1 })).reverse().map(m => (
+                      <HistoryItem key={m.id} market={m} address={address} showNotification={showNotification} refetchMarkets={refetchMarkets} />
+                    ))}
+                  </div>
+                ) : <div className="empty-state">No betting history found.</div>
+              ) : (
+                filteredMarkets.length > 0 ? filteredMarkets.map(m => (
+                  <PredictionCard key={m.id} id={m.id} market={m} showNotification={showNotification} userPoints={Number(pointsRaw || 0)} refetchMarkets={refetchMarkets} />
+                )) : (
+                  <div className="empty-state">No active markets found.</div>
+                )
               )}
             </div>
           </section>
