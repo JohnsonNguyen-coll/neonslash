@@ -225,6 +225,11 @@ const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void }) => {
   const [activeCategory, setActiveCategory] = useState('All')
   const [notification, setNotification] = useState<{message: string, type: 'success' | 'error' | 'info'} | null>(null)
 
+  const showNotification = useCallback((message: string, type: 'success' | 'error' | 'info' = 'info') => {
+    setNotification({ message, type })
+    setTimeout(() => setNotification(null), 5000)
+  }, [])
+
   // Real-time Prices from Public APIs
   const [prices, setPrices] = useState({ BTC: 0, ETH: 0, SOL: 0, GOLD: 0, AAPL: 0, NVDA: 0 })
 
@@ -274,29 +279,8 @@ const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void }) => {
     return () => clearInterval(timer)
   }, [])
 
-  // Admin Form States
-  const [mDesc, setMDesc] = useState('')
-  const [mCat, setMCat] = useState('Gold')
-  const [mDur, setMDur] = useState('3600')
-  const [showAdmin, setShowAdmin] = useState(false)
-
-  const showNotification = useCallback((message: string, type: 'success' | 'error' | 'info' = 'info') => {
-    setNotification({ message, type })
-    setTimeout(() => setNotification(null), 5000)
-  }, [])
-
-  // On-chain Data
   const { data: pointsRaw } = useReadContract({ address: VAULT_ADDRESS as `0x${string}`, abi: VAULT_ABI, functionName: 'getPoints', args: address ? [address] : undefined, query: { enabled: !!address && !isNotOnArc } })
-  const { data: ownerAddress } = useReadContract({ address: VAULT_ADDRESS as `0x${string}`, abi: VAULT_ABI, functionName: 'owner', query: { enabled: !isNotOnArc } })
   const { data: markets, refetch: refetchMarkets } = useReadContract({ address: VAULT_ADDRESS as `0x${string}`, abi: VAULT_ABI, functionName: 'getAllMarkets', query: { enabled: !isNotOnArc } })
-
-  const isOwner = address && ownerAddress && address.toLowerCase() === (ownerAddress as string).toLowerCase()
-  const { writeContract, isPending: isTxPending } = useWriteContract()
-
-  const handleCreateMarket = () => {
-    if (!mDesc) return
-    writeContract({ address: VAULT_ADDRESS as `0x${string}`, abi: VAULT_ABI, functionName: 'createMarket', args: [mDesc, mCat, BigInt(mDur)] })
-  }
 
   const filteredMarkets = markets ? (markets as any[]).map((m, idx) => ({ ...m, id: idx + 1 })).filter(m => activeCategory === 'All' || m.category === activeCategory) : []
 
@@ -320,20 +304,6 @@ const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void }) => {
           <div className="glass price-card"><div className="label">GOLD</div><div className="value">${prices.GOLD.toFixed(2)}</div></div>
         </div>
 
-        {showAdmin && isOwner && (
-          <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="glass admin-panel" style={{ padding: '2rem', marginBottom: '2rem', border: '1px solid var(--primary)' }}>
-            <h2 style={{ fontSize: '1.2rem', marginBottom: '1.5rem' }}>📢 Market Factory</h2>
-            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: '1rem', alignItems: 'end' }}>
-              <div className="form-group"><label>Question</label><input value={mDesc} onChange={e => setMDesc(e.target.value)} placeholder="Will Gold hit $3k?" /></div>
-              <div className="form-group"><label>Category</label><select value={mCat} onChange={e => setMCat(e.target.value)}><option value="Gold">Gold</option><option value="Stocks">Stocks</option><option value="News">News</option><option value="Football">Football</option></select></div>
-              <div className="form-group"><label>Duration (sec)</label><input value={mDur} onChange={e => setMDur(e.target.value)} type="number" /></div>
-              <button className="glow-btn" onClick={handleCreateMarket} disabled={isTxPending}>
-                {isTxPending ? <><Loader2 className="animate-spin" size={14} /> CREATING...</> : 'CREATE MARKET'}
-              </button>
-            </div>
-          </motion.div>
-        )}
-
         <div className="dashboard-grid">
           <aside className="sidebar">
             <div className="glass" style={{ padding: '1.5rem', marginBottom: '1.5rem' }}>
@@ -356,13 +326,6 @@ const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void }) => {
               <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '1.5rem' }}>Stake your USDC in the Neon Vault to generate prediction points instantly.</p>
               <button className="glow-btn" style={{ width: '100%' }} onClick={() => onNavigate?.('vault')}>Enter Vault</button>
             </div>
-
-
-            {isOwner && (
-               <button className="nav-item" style={{ marginTop: '1rem' }} onClick={() => setShowAdmin(!showAdmin)}>
-                 <PlusCircle size={16} /> {showAdmin ? 'Hide Admin' : 'Admin Panel'}
-               </button>
-            )}
           </aside>
 
           <section className="markets-grid">

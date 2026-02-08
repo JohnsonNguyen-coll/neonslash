@@ -57,19 +57,47 @@ const RewardCenter = () => {
 
   return (
     <div className="reward-page" style={{ padding: '2rem', maxWidth: '1200px', margin: '0 auto' }}>
-      <header style={{ textAlign: 'center', marginBottom: '4rem' }}>
+      <header style={{ 
+        display: 'flex', 
+        alignItems: 'center', 
+        gap: '1.5rem', 
+        marginBottom: '3rem',
+        paddingBottom: '1.5rem',
+        borderBottom: '1px solid var(--border)',
+        textAlign: 'left'
+      }}>
         <motion.div 
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="neon-icon"
-          style={{ marginBottom: '1.5rem', display: 'inline-block' }}
+          initial={{ opacity: 0, x: -20 }}
+          animate={{ opacity: 1, x: 0 }}
         >
-          <div className="glass" style={{ padding: '1rem', borderRadius: '50%', background: 'rgba(16, 185, 129, 0.1)' }}>
-            <Trophy size={40} className="neon-text" />
+          <div style={{ 
+            width: '48px', 
+            height: '48px', 
+            borderRadius: '50%', 
+            background: 'rgba(16, 185, 129, 0.1)', 
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'center',
+            border: '1px solid rgba(16, 185, 129, 0.2)'
+          }}>
+            <Trophy size={24} className="neon-text" />
           </div>
         </motion.div>
-        <h1 style={{ fontSize: '3rem', fontWeight: 900, marginBottom: '1rem' }}>Reward <span className="neon-text">Center</span></h1>
-        <p style={{ color: 'var(--text-muted)', fontSize: '1.1rem' }}>Exchange your hard-earned points for exclusive NeonSlash NFTs</p>
+        
+        <div style={{ display: 'flex', alignItems: 'center', gap: '2rem', flex: 1 }}>
+          <h1 style={{ fontSize: '2.4rem', fontWeight: 900, margin: 0, letterSpacing: '-0.02em' }}>
+            Reward <span className="neon-text">Center</span>
+          </h1>
+          <p style={{ 
+            color: 'var(--text-muted)', 
+            fontSize: '0.95rem', 
+            margin: '0.5rem 0 0 0',
+            fontWeight: 500,
+            opacity: 0.8
+          }}>
+            Exchange your hard-earned points for exclusive NeonSlash NFTs
+          </p>
+        </div>
       </header>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4rem', alignItems: 'center' }}>
@@ -192,9 +220,9 @@ const RewardCenter = () => {
       <AnimatePresence>
         {notification && (
           <motion.div initial={{ opacity: 0, scale: 0.9, y: 50 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9, y: 50 }} style={{ position: 'fixed', bottom: '40px', left: '0', right: '0', margin: '0 auto', width: 'fit-content', minWidth: '350px', zIndex: 99999 }}>
-            <div className="glass" style={{ padding: '1rem 2rem', border: `1px solid ${notification.type === 'success' ? 'var(--primary)' : '#ef4444'}`, background: '#0a0f1a', display: 'flex', alignItems: 'center', gap: '1rem', boxShadow: '0 10px 40px rgba(0,0,0,0.5)' }}>
-              {notification.type === 'success' ? <CheckCircle color="var(--primary)" size={18} /> : <AlertCircle color="#ef4444" size={18} />}
-              <span style={{ fontSize: '0.9rem', fontWeight: 500 }}>{notification.message}</span>
+            <div className="glass" style={{ padding: '1rem 2rem', border: `1px solid ${notification?.type === 'success' ? 'var(--primary)' : '#ef4444'}`, background: '#0a0f1a', display: 'flex', alignItems: 'center', gap: '1rem', boxShadow: '0 10px 40px rgba(0,0,0,0.5)' }}>
+              {notification?.type === 'success' ? <CheckCircle color="var(--primary)" size={18} /> : <AlertCircle color="#ef4444" size={18} />}
+              <span style={{ fontSize: '0.9rem', fontWeight: 500 }}>{notification?.message}</span>
               <button onClick={() => setNotification(null)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', marginLeft: '1rem' }}><X size={16} /></button>
             </div>
           </motion.div>
