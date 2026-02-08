@@ -11,6 +11,7 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
  */
 contract NeonSlashVault is Ownable, ReentrancyGuard {
     IERC20 public immutable usdc;
+    address public nftContract;
     
     uint256 public constant POINTS_PER_USDC = 5; // 1 USDC = 5 Points initially
     uint256 public constant SECONDS_PER_DAY = 86400; // 1 point per day per USDC
@@ -75,6 +76,10 @@ contract NeonSlashVault is Ownable, ReentrancyGuard {
         withdrawFeeBps = _withdraw;
         redemptionFeeBps = _redemption;
         emit FeesUpdated(_entry, _claim, _withdraw, _redemption);
+    }
+
+    function setNFTContract(address _nft) external onlyOwner {
+        nftContract = _nft;
     }
 
     /**
@@ -237,6 +242,22 @@ contract NeonSlashVault is Ownable, ReentrancyGuard {
         usdc.transfer(msg.sender, netReward);
         
         emit RewardClaimed(msg.sender, points, netReward);
+    }
+
+    function redeemNFT() external nonReentrant {
+        _updateYield(msg.sender);
+        require(pointBalances[msg.sender] >= 1000, "Insufficient points for NFT");
+        require(nftContract != address(0), "NFT contract not set");
+
+        pointBalances[msg.sender] -= 1000;
+        
+        // Simulating URI for now, would typically be an IPFS link to nftneon.png metadata
+        string memory metadataURI = "ipfs://QmNeonSlashGuardianMetadata";
+        
+        (bool success, ) = nftContract.call(
+            abi.encodeWithSignature("safeMint(address,string)", msg.sender, metadataURI)
+        );
+        require(success, "NFT minting failed");
     }
 
     /**

@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react'
 import { useAccount } from 'wagmi'
 import { ConnectButton } from '@rainbow-me/rainbowkit'
-import { Shield, LayoutDashboard, Lock, LogOut, ArrowRightLeft } from 'lucide-react'
+import { Shield, LayoutDashboard, Lock, LogOut, ArrowRightLeft, Trophy } from 'lucide-react'
 import { useNavigate, useLocation, Routes, Route, Link, Navigate } from 'react-router-dom'
 import LandingPage from './components/LandingPage'
 import Dashboard from './components/Dashboard'
 import Vault from './components/Vault'
 import Bridge from './components/Bridge'
+import RewardCenter from './components/RewardCenter'
 
 function App() {
   const [isLaunched, setIsLaunched] = useState(false)
@@ -66,6 +67,12 @@ function App() {
               >
                 <Lock size={18} /> Vault
               </button>
+              <button 
+                className={`nav-btn ${location.pathname === '/rewards' ? 'active' : ''}`}
+                onClick={() => navigate('/rewards')}
+              >
+                <Trophy size={18} /> Rewards
+              </button>
             </div>
           )}
         </div>
@@ -91,6 +98,7 @@ function App() {
           <Route path="/dashboard" element={<Dashboard onNavigate={(v) => navigate(`/${v}`)} />} />
           <Route path="/bridge" element={<Bridge />} />
           <Route path="/vault" element={<Vault />} />
+          <Route path="/rewards" element={<RewardCenter />} />
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
       </div>
