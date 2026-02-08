@@ -103,5 +103,22 @@ class ProphetAgent:
             print("Wave deployed. Waiting 15 mins...")
             time.sleep(900)
 
-if __name__ == "__main__":
+import threading
+from flask import Flask
+
+app = Flask(__name__)
+
+@app.route('/')
+def health_check():
+    return "Prophet Agent is RUNNING 🚀", 200
+
+def run_bot():
     ProphetAgent().run()
+
+if __name__ == "__main__":
+    # Start bot in a separate thread
+    threading.Thread(target=run_bot, daemon=True).start()
+    
+    # Start Flask server for Render health check
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host='0.0.0.0', port=port)
