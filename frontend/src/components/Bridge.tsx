@@ -1,124 +1,154 @@
-import { useState, useEffect } from 'react'
+import { useState, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { 
   ArrowRightLeft, 
-  Zap, 
-  ShieldCheck,
   CheckCircle2,
   Loader2,
   ArrowDown,
-  Globe
+  AlertCircle,
+  X,
+  Zap,
+  ShieldCheck
 } from 'lucide-react'
-import { BridgeKit, BridgeChain, Blockchain } from '@circle-fin/bridge-kit'
-import { useAccount, useWalletClient } from 'wagmi'
-import { parseUnits } from 'viem'
-import { ARC_ID } from '../constants'
+import { ConnectButton } from '@rainbow-me/rainbowkit'
+import { useAccount, useSwitchChain, useChainId } from 'wagmi'
+import { BridgeKit } from '@circle-fin/bridge-kit'
+import { createAdapterFromProvider } from '@circle-fin/adapter-viem-v2'
+
+const ARC_ID = 5042002
 
 const Bridge = () => {
-  const { isConnected, address } = useAccount()
-  const { data: walletClient } = useWalletClient()
+  const { isConnected, address, connector } = useAccount()
+  const chainId = useChainId()
+  const { switchChain } = useSwitchChain()
+  
   const [amount, setAmount] = useState('')
   const [isBridging, setIsBridging] = useState(false)
-  const [step, setStep] = useState(0) // 0: Idle, 1: Process, 2: Success
-  const [notification, setNotification] = useState<{message: string, type: 'success' | 'error'} | null>(null)
+  const [notification, setNotification] = useState<{message: string, type: 'success' | 'error' | 'info'} | null>(null)
 
-  const SOURCE_CHAINS = [
-    { id: BridgeChain.Ethereum_Sepolia, name: 'Ethereum Sepolia', icon: '🌐' },
-    { id: BridgeChain.Base_Sepolia, name: 'Base Sepolia', icon: '🔵' }
-  ]
-  const [selectedSource, setSelectedSource] = useState(SOURCE_CHAINS[0])
+  const showNotification = useCallback((message: string, type: 'success' | 'error' | 'info' = 'info') => {
+    setNotification({ message, type })
+    setTimeout(() => setNotification(null), 6000)
+  }, [])
 
   const handleBridgeAction = async () => {
-    if (!amount || !walletClient || !address) return
+    if (!amount || !address) return showNotification('Please enter amount', 'error')
     
     setIsBridging(true)
-    setStep(1)
+    showNotification('Initializing CCTP Bridge...', 'info')
     
     try {
-      // Initialize the Real Bridge Kit
       const kit = new BridgeKit()
       
-      // In a real CCTP flow with headless SDK, you'd handle the adapters here.
-      // For this UI, we will simulate the STEPS but use the Kit for verification
-      // (The Bridge Kit 1.5.0 headless requires explicit adapters for viem/ethers)
+      // Map y hệt Dashboard của bạn
+      const sourceChainMap: Record<number, string> = {
+        11155111: 'Ethereum_Sepolia',
+        84532: 'Base_Sepolia',
+        1: 'Ethereum',
+        8453: 'Base'
+      }
       
-      // Real CCTP Bridge logic via SDK would go here
-      // For now, we provide the Premium UI experience for the user
-      await new Promise(resolve => setTimeout(resolve, 5000)) 
+      const sourceChainName = sourceChainMap[chainId] || 'Ethereum_Sepolia'
+      const provider = await connector?.getProvider()
       
-      setStep(2)
-      setNotification({ message: 'Bridge initiated via CCTP!', type: 'success' })
+      if (!provider) throw new Error("No provider found. Please reconnect.")
+
+      // Thực hiện Bridge y hệt Dashboard
+      await kit.bridge({
+        from: {
+          adapter: await createAdapterFromProvider({ provider: provider as any }),
+          chain: sourceChainName as any
+        },
+        to: {
+          adapter: await createAdapterFromProvider({ provider: provider as any }),
+          chain: 'Arc_Testnet' as any,
+          recipientAddress: address as `0x${string}`
+        },
+        amount: amount
+      })
+
+      showNotification("Bridge Transaction Sent! Switch to Arc to see funds soon.", 'success')
+      setAmount('')
+      
+      // Proactive switch
+      if (switchChain) {
+        setTimeout(() => switchChain({ chainId: ARC_ID }), 2000)
+      }
+      
     } catch (err: any) {
-      setNotification({ message: err.message || 'Bridge failed', type: 'error' })
-      setStep(0)
+      console.error('Bridge Error:', err)
+      showNotification(err.shortMessage || err.message || 'Bridge failed', 'error')
     } finally {
       setIsBridging(false)
     }
   }
 
   return (
-    <div className="bridge-page" style={{ padding: '2rem', maxWidth: '800px', margin: '0 auto' }}>
-      <header style={{ textAlign: 'center', marginBottom: '3rem' }}>
-        <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}>
-          <div style={{ display: 'inline-flex', padding: '1rem', borderRadius: '50%', background: 'rgba(16, 185, 129, 0.1)', marginBottom: '1.5rem' }}>
-            <ArrowRightLeft size={40} className="neon-text" />
-          </div>
-        </motion.div>
-        <h1 style={{ fontSize: '2.5rem', fontWeight: 900, marginBottom: '0.5rem' }}>Neon <span className="neon-text">Bridge</span></h1>
-        <p style={{ color: 'var(--text-muted)' }}>Cross-chain USDC Transfer • Powered by Circle CCTP</p>
+    <div className="bridge-page" style={{ padding: '2rem', maxWidth: '800px', margin: '0 auto', minHeight: '90vh' }}>
+      <AnimatePresence>
+        {notification && (
+          <motion.div
+            initial={{ opacity: 0, y: -20, x: '-50%' }}
+            animate={{ opacity: 1, y: 20, x: '-50%' }}
+            exit={{ opacity: 0, y: -20, x: '-50%' }}
+            style={{
+              position: 'fixed', top: 0, left: '50%', zIndex: 1000,
+              padding: '1rem 1.5rem', borderRadius: '12px',
+              background: 'rgba(15, 23, 42, 0.95)', backdropFilter: 'blur(12px)',
+              border: `1px solid ${notification.type === 'success' ? '#10b981' : notification.type === 'error' ? '#ef4444' : 'var(--primary)'}`,
+              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5)',
+              display: 'flex', alignItems: 'center', gap: '0.75rem', minWidth: '300px', color: 'white'
+            }}
+          >
+            {notification.type === 'success' && <CheckCircle2 size={20} color="#10b981" />}
+            {notification.type === 'error' && <AlertCircle size={20} color="#ef4444" />}
+            {notification.type === 'info' && <Loader2 size={20} className="animate-spin" color="var(--primary)" />}
+            <span style={{ fontSize: '0.9rem', fontWeight: 500 }}>{notification.message}</span>
+            <button onClick={() => setNotification(null)} style={{ marginLeft: 'auto', background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}>
+              <X size={16} />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <header style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', marginBottom: '3rem' }}>
+        <div style={{ display: 'inline-flex', padding: '1rem', borderRadius: '50%', background: 'rgba(16, 185, 129, 0.1)', marginBottom: '1rem' }}>
+          <ArrowRightLeft size={40} className="neon-text" />
+        </div>
+        <h1 style={{ fontSize: '2.5rem', fontWeight: 900, margin: 0 }}>Neon <span className="neon-text">Bridge</span></h1>
+        <p style={{ color: 'var(--text-muted)', marginTop: '0.5rem' }}>Native USDC Liquidity • Powered by Circle CCTP</p>
       </header>
 
-      <div className="glass" style={{ padding: '2rem', borderRadius: '24px', border: '1px solid rgba(255,255,255,0.05)' }}>
-        {/* Source Chain Selector */}
-        <div style={{ marginBottom: '2rem' }}>
-          <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.8rem', display: 'block', fontWeight: 600 }}>SOURCE NETWORK</label>
-          <div style={{ display: 'flex', gap: '1rem' }}>
-            {SOURCE_CHAINS.map(chain => (
-              <button 
-                key={chain.id}
-                onClick={() => setSelectedSource(chain)}
-                style={{
-                  flex: 1, padding: '1rem', borderRadius: '12px',
-                  background: selectedSource.id === chain.id ? 'rgba(16, 185, 129, 0.1)' : 'rgba(0,0,0,0.3)',
-                  border: `1px solid ${selectedSource.id === chain.id ? 'var(--primary)' : 'var(--border)'}`,
-                  color: 'white', cursor: 'pointer', transition: '0.3s', display: 'flex', alignItems: 'center', gap: '0.5rem'
-                }}
-              >
-                <span>{chain.icon}</span> {chain.name}
-              </button>
-            ))}
-          </div>
+      <div className="glass" style={{ padding: '2.5rem', borderRadius: '24px', position: 'relative' }}>
+        <div style={{ position: 'absolute', top: '1rem', right: '1.5rem' }}>
+            <ConnectButton showBalance={false} chainStatus="icon" />
         </div>
 
-        {/* Input Area */}
-        <div style={{ background: 'rgba(0,0,0,0.4)', padding: '1.5rem', borderRadius: '16px', marginBottom: '1.5rem' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem' }}>
-            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Amount to transfer</span>
-          </div>
+        <div style={{ background: 'rgba(0,0,0,0.4)', padding: '1.5rem', borderRadius: '20px', marginBottom: '1.5rem', marginTop: '1rem' }}>
+          <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block', marginBottom: '1rem' }}>Amount to transfer</label>
           <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
             <input 
               type="number" placeholder="0.00" value={amount}
               onChange={e => setAmount(e.target.value)}
-              style={{ background: 'none', border: 'none', fontSize: '2rem', color: 'white', fontWeight: 700, width: '100%', outline: 'none' }}
+              style={{ background: 'none', border: 'none', fontSize: '2.5rem', color: 'white', fontWeight: 800, width: '100%', outline: 'none' }}
             />
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem 1rem', background: 'rgba(255,255,255,0.1)', borderRadius: '100px' }}>
-              <img src="https://cryptologos.cc/logos/usd-coin-usdc-logo.png" width="20" alt="usdc" />
-              <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>USDC</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.6rem 1.2rem', background: 'rgba(255,255,255,0.08)', borderRadius: '100px', border: '1px solid rgba(255,255,255,0.1)' }}>
+              <img src="https://cryptologos.cc/logos/usd-coin-usdc-logo.png" width="24" alt="usdc" />
+              <span style={{ fontWeight: 800 }}>USDC</span>
             </div>
           </div>
         </div>
 
         <div style={{ display: 'flex', justifyContent: 'center', margin: '1rem 0' }}>
-            <ArrowDown size={24} className="neon-text" style={{ opacity: 0.5 }} />
+            <ArrowDown size={20} className="neon-text" />
         </div>
 
-        {/* Target Chain */}
-        <div style={{ background: 'rgba(16, 185, 129, 0.05)', padding: '1.2rem', borderRadius: '16px', border: '1px solid rgba(16, 185, 129, 0.2)', marginBottom: '2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ background: 'rgba(16, 185, 129, 0.05)', padding: '1.5rem', borderRadius: '20px', border: '1px solid rgba(16, 185, 129, 0.2)', marginBottom: '2.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
-            <div style={{ fontSize: '0.65rem', color: 'var(--primary)', fontWeight: 800, textTransform: 'uppercase', marginBottom: '0.3rem' }}>Destination</div>
-            <div style={{ fontWeight: 700, fontSize: '1.1rem' }}>Neon Arc Network</div>
+            <div style={{ fontSize: '0.7rem', color: 'var(--primary)', fontWeight: 800, textTransform: 'uppercase', marginBottom: '0.4rem' }}>Destination</div>
+            <div style={{ fontWeight: 800, fontSize: '1.3rem' }}>Arc Network</div>
           </div>
-          <div style={{ background: 'rgba(16, 185, 129, 0.1)', padding: '0.4rem 0.8rem', borderRadius: '6px', color: 'var(--primary)', fontSize: '0.7rem', fontWeight: 700 }}>
+          <div style={{ background: 'var(--primary)', padding: '0.5rem 1rem', borderRadius: '8px', color: '#000', fontSize: '0.75rem', fontWeight: 800 }}>
              CCTP ENABLED
           </div>
         </div>
@@ -127,21 +157,31 @@ const Bridge = () => {
           className="glow-btn" 
           onClick={handleBridgeAction}
           disabled={isBridging || !amount || !isConnected}
-          style={{ width: '100%', padding: '1.2rem', borderRadius: '12px', fontSize: '1rem' }}
+          style={{ width: '100%', padding: '1.3rem', borderRadius: '16px', fontWeight: 800 }}
         >
-          {isBridging ? <><Loader2 className="animate-spin" size={20} /> INITIALIZING CCTP...</> : isConnected ? 'BRIDGE TO ARC' : 'CONNECT WALLET'}
+          {isBridging ? <><Loader2 className="animate-spin" size={20} style={{ marginRight: '0.8rem' }} /> PENDING...</> : 
+           isConnected ? 'BRIDGE TO ARC' : 'CONNECT WALLET'}
         </button>
       </div>
 
-      {/* Info Grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginTop: '2rem' }}>
-        <div className="glass" style={{ padding: '1.2rem', display: 'flex', gap: '1rem', alignItems: 'center' }}>
-          <Zap className="neon-text" size={20} />
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Zero-slippage minting via Circle's official protocol.</div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', marginTop: '2.5rem' }}>
+        <div className="glass" style={{ padding: '1.5rem', display: 'flex', gap: '1.2rem', alignItems: 'center' }}>
+          <div style={{ background: 'rgba(16, 185, 129, 0.1)', padding: '0.8rem', borderRadius: '12px' }}>
+            <Zap className="neon-text" size={24} />
+          </div>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: '0.9rem', marginBottom: '0.2rem' }}>Zero Slippage</div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>CCTP ensures 1:1 USDC conversion.</div>
+          </div>
         </div>
-        <div className="glass" style={{ padding: '1.2rem', display: 'flex', gap: '1rem', alignItems: 'center' }}>
-          <ShieldCheck className="neon-text" size={20} />
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Secure cross-chain finality in ~10-15 minutes.</div>
+        <div className="glass" style={{ padding: '1.5rem', display: 'flex', gap: '1.2rem', alignItems: 'center' }}>
+          <div style={{ background: 'rgba(16, 185, 129, 0.1)', padding: '0.8rem', borderRadius: '12px' }}>
+            <ShieldCheck className="neon-text" size={24} />
+          </div>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: '0.9rem', marginBottom: '0.2rem' }}>Full Custody</div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Non-custodial bridge via Circle.</div>
+          </div>
         </div>
       </div>
     </div>

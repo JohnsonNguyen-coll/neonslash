@@ -10,10 +10,21 @@ import Bridge from './components/Bridge'
 import RewardCenter from './components/RewardCenter'
 
 function App() {
-  const [isLaunched, setIsLaunched] = useState(false)
+  // 1. Khởi tạo trạng thái từ localStorage để giữ phiên làm việc khi F5
+  const [isLaunched, setIsLaunched] = useState(() => {
+    return localStorage.getItem('neon_launched') === 'true' || window.location.pathname !== '/'
+  })
+  
   const { isConnected } = useAccount()
   const navigate = useNavigate()
   const location = useLocation()
+
+  // 2. Lưu vào localStorage mỗi khi trạng thái thay đổi
+  useEffect(() => {
+    if (isLaunched) {
+      localStorage.setItem('neon_launched', 'true')
+    }
+  }, [isLaunched])
 
   // Proactive redirect if connected and launched
   useEffect(() => {

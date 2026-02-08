@@ -205,7 +205,7 @@ const Vault = () => {
             </div>
           </div>
           <button className="glow-btn" style={{ width: '100%', padding: '1.2rem', fontSize: '1.1rem' }} onClick={handleAction} disabled={isProcessing || !stakeAmount}>
-            {isProcessing ? <><Loader2 className="animate-spin" size={20} style={{ marginRight: '0.5rem' }} /> Pending...</> : <>Stake Assets <ArrowRight size={20} style={{ marginLeft: '0.5rem' }} /></>}
+            {isProcessing ? <><Loader2 className="animate-spin" size={20} style={{ marginRight: '0.5rem' }} /> PENDING...</> : <>Stake Assets <ArrowRight size={20} style={{ marginLeft: '0.5rem' }} /></>}
           </button>
         </div>
 

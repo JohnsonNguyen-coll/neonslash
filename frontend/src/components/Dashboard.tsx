@@ -18,7 +18,8 @@ import {
   CheckCircle,
   X,
   PlusCircle,
-  LayoutDashboard
+  LayoutDashboard,
+  Loader2
 } from 'lucide-react'
 import { ARC_ID, VAULT_ADDRESS, VAULT_ABI } from '../constants'
 
@@ -30,11 +31,11 @@ const PredictionCard = ({ id, market, showNotification, userPoints, refetchMarke
 
   const handleBet = (side: boolean) => {
     if (betAmount > userPoints) return showNotification("Low points balance!", "error")
-    writeContract({ 
-      address: VAULT_ADDRESS as `0x${string}`, 
-      abi: VAULT_ABI, 
-      functionName: 'placeBet', 
-      args: [BigInt(id), side, BigInt(betAmount)] 
+    writeContract({
+      address: VAULT_ADDRESS as `0x${string}`,
+      abi: VAULT_ABI,
+      functionName: 'placeBet',
+      args: [BigInt(id), side, BigInt(betAmount)]
     }, {
       onSuccess: () => {
         showNotification("Bet placed successfully!", "success")
@@ -56,7 +57,7 @@ const PredictionCard = ({ id, market, showNotification, userPoints, refetchMarke
         </span>
       </div>
       <h3 style={{ fontSize: '1.1rem', marginBottom: '1.5rem', lineHeight: 1.4 }}>{market.description}</h3>
-      
+
       <div style={{ marginBottom: '1.5rem' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', marginBottom: '0.5rem', color: 'var(--text-muted)' }}>
           <span>YES: {Number(market.totalYes).toLocaleString()} Pts</span>
@@ -75,12 +76,12 @@ const PredictionCard = ({ id, market, showNotification, userPoints, refetchMarke
                 <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Amount to Predict</span>
                 <span className="neon-text" style={{ fontWeight: 800 }}>{betAmount} PTS</span>
             </div>
-            <input 
-              type="range" 
-              min="1" 
-              max={userPoints > 0 ? userPoints : 100} 
-              value={betAmount} 
-              onChange={e => setBetAmount(Number(e.target.value))} 
+            <input
+              type="range"
+              min="1"
+              max={userPoints > 0 ? userPoints : 100}
+              value={betAmount}
+              onChange={e => setBetAmount(Number(e.target.value))}
               style={{ width: '100%', accentColor: 'var(--primary)', cursor: 'pointer' }}
             />
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.6rem', color: 'var(--text-muted)', marginTop: '0.4rem' }}>
@@ -89,8 +90,12 @@ const PredictionCard = ({ id, market, showNotification, userPoints, refetchMarke
             </div>
           </div>
           <div style={{ display: 'flex', gap: '0.5rem' }}>
-            <button className="glow-btn" style={{ flex: 1, padding: '0.7rem', fontSize: '0.75rem', background: '#10b981', border: 'none', borderRadius: '8px' }} onClick={() => handleBet(true)} disabled={isPending || userPoints <= 0}>BET YES</button>
-            <button className="glow-btn" style={{ flex: 1, padding: '0.7rem', fontSize: '0.75rem', background: '#ef4444', border: 'none', borderRadius: '8px' }} onClick={() => handleBet(false)} disabled={isPending || userPoints <= 0}>BET NO</button>
+            <button className="glow-btn" style={{ flex: 1, padding: '0.7rem', fontSize: '0.75rem', background: '#10b981', border: 'none', borderRadius: '8px' }} onClick={() => handleBet(true)} disabled={isPending || userPoints <= 0}>
+               {isPending ? <Loader2 className="animate-spin" size={14} /> : 'BET YES'}
+            </button>
+            <button className="glow-btn" style={{ flex: 1, padding: '0.7rem', fontSize: '0.75rem', background: '#ef4444', border: 'none', borderRadius: '8px' }} onClick={() => handleBet(false)} disabled={isPending || userPoints <= 0}>
+               {isPending ? <Loader2 className="animate-spin" size={14} /> : 'BET NO'}
+            </button>
           </div>
         </div>
       )}
@@ -107,10 +112,10 @@ const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void }) => {
   const { address, isConnected } = useAccount()
   const chainId = useChainId()
   const isNotOnArc = chainId !== ARC_ID
-  
+
   const [activeCategory, setActiveCategory] = useState('All')
   const [notification, setNotification] = useState<{message: string, type: 'success' | 'error' | 'info'} | null>(null)
-  
+
   // Real-time Prices from Public APIs
   const [prices, setPrices] = useState({ BTC: 0, ETH: 0, SOL: 0, GOLD: 0, AAPL: 0, NVDA: 0 })
 
@@ -125,7 +130,7 @@ const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void }) => {
           return { price: "0" };
         }
       }));
-      
+
       // 2. Stocks from Finnhub with robust fallbacks
       const getStockPrice = async (symbol: string, fallback: number) => {
         try {
@@ -213,7 +218,9 @@ const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void }) => {
               <div className="form-group"><label>Question</label><input value={mDesc} onChange={e => setMDesc(e.target.value)} placeholder="Will Gold hit $3k?" /></div>
               <div className="form-group"><label>Category</label><select value={mCat} onChange={e => setMCat(e.target.value)}><option value="Gold">Gold</option><option value="Stocks">Stocks</option><option value="News">News</option><option value="Football">Football</option></select></div>
               <div className="form-group"><label>Duration (sec)</label><input value={mDur} onChange={e => setMDur(e.target.value)} type="number" /></div>
-              <button className="glow-btn" onClick={handleCreateMarket} disabled={isTxPending}>{isTxPending ? 'Creating...' : 'Create Market'}</button>
+              <button className="glow-btn" onClick={handleCreateMarket} disabled={isTxPending}>
+                {isTxPending ? <><Loader2 className="animate-spin" size={14} /> CREATING...</> : 'CREATE MARKET'}
+              </button>
             </div>
           </motion.div>
         )}
