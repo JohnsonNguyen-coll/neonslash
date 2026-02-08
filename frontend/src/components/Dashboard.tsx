@@ -19,11 +19,67 @@ import {
   X,
   PlusCircle,
   LayoutDashboard,
-  Loader2
+  Loader2,
+  History as HistoryIcon
 } from 'lucide-react'
 import { ARC_ID, VAULT_ADDRESS, VAULT_ABI } from '../constants'
 
 // --- COMPONENTS ---
+const ClaimButton = ({ marketId, marketResult, showNotification, refetchMarkets }: any) => {
+  const { address } = useAccount()
+  const { data: bet } = useReadContract({
+    address: VAULT_ADDRESS as `0x${string}`,
+    abi: VAULT_ABI,
+    functionName: 'userBets',
+    args: address ? [BigInt(marketId), address] : undefined,
+    query: { enabled: !!address }
+  })
+  const { writeContract, isPending } = useWriteContract()
+
+  if (!bet) return null
+  const [amount, prediction, claimed] = bet as [bigint, boolean, boolean]
+
+  const isWinner = prediction === marketResult
+  const hasWonSomething = amount > 0n
+
+  if (!hasWonSomething) return null
+  if (claimed) return (
+    <div style={{ textAlign: 'center', fontSize: '0.7rem', color: 'var(--text-muted)', paddingTop: '0.5rem' }}>
+      Points Claimed
+    </div>
+  )
+
+  if (!isWinner) return (
+    <div style={{ textAlign: 'center', fontSize: '0.7rem', color: '#ef4444', paddingTop: '0.5rem' }}>
+      Better luck next time
+    </div>
+  )
+
+  const handleClaim = () => {
+    writeContract({
+      address: VAULT_ADDRESS as `0x${string}`,
+      abi: VAULT_ABI,
+      functionName: 'claimWinnings',
+      args: [BigInt(marketId)]
+    }, {
+      onSuccess: () => {
+        showNotification("Winnings claimed! Check your balance.", "success")
+        setTimeout(refetchMarkets, 2000)
+      }
+    })
+  }
+
+  return (
+    <button
+      className="glow-btn"
+      style={{ width: '100%', padding: '0.7rem', fontSize: '0.75rem', marginTop: '0.5rem' }}
+      onClick={handleClaim}
+      disabled={isPending}
+    >
+      {isPending ? <Loader2 className="animate-spin" size={14} /> : 'CLAIM WINNINGS'}
+    </button>
+  )
+}
 
 const PredictionCard = ({ id, market, showNotification, userPoints, refetchMarkets }: any) => {
   const [betAmount, setBetAmount] = useState(Math.min(userPoints, 50) || 1)
@@ -74,7 +130,7 @@ const PredictionCard = ({ id, market, showNotification, userPoints, refetchMarke
           <div style={{ background: 'rgba(0,0,0,0.2)', padding: '1rem', borderRadius: '12px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.8rem' }}>
                 <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Amount to Predict</span>
-                <span className="neon-text" style={{ fontWeight: 800 }}>{betAmount} PTS</span>
+                <span className="neon-yellow" style={{ fontWeight: 800 }}>{betAmount} PTS</span>
             </div>
             <input
               type="range"
@@ -82,7 +138,7 @@ const PredictionCard = ({ id, market, showNotification, userPoints, refetchMarke
               max={userPoints > 0 ? userPoints : 100}
               value={betAmount}
               onChange={e => setBetAmount(Number(e.target.value))}
-              style={{ width: '100%', accentColor: 'var(--primary)', cursor: 'pointer' }}
+              style={{ width: '100%', accentColor: '#f59e0b', cursor: 'pointer' }}
             />
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.6rem', color: 'var(--text-muted)', marginTop: '0.4rem' }}>
                 <span>1 Pt</span>
@@ -100,8 +156,17 @@ const PredictionCard = ({ id, market, showNotification, userPoints, refetchMarke
         </div>
       )}
       {market.resolved && (
-         <div style={{ textAlign: 'center', padding: '0.6rem', background: 'rgba(255,255,255,0.05)', borderRadius: '8px', fontSize: '0.85rem' }}>
-            Outcome: <span className="neon-text" style={{ fontWeight: 800 }}>{market.result ? 'YES' : 'NO'}</span>
+         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
+            <div style={{ textAlign: 'center', padding: '0.6rem', background: 'rgba(255,255,255,0.05)', borderRadius: '8px', fontSize: '0.85rem' }}>
+               Outcome: <span className="neon-text" style={{ fontWeight: 800 }}>{market.result ? 'YES' : 'NO'}</span>
+            </div>
+            {/* Winning Status & Claim Button */}
+            <ClaimButton
+               marketId={id}
+               marketResult={market.result}
+               showNotification={showNotification}
+               refetchMarkets={refetchMarkets}
+            />
          </div>
       )}
     </motion.div>
@@ -240,11 +305,31 @@ const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void }) => {
               ))}
             </div>
 
-            <div className="glass highlight-box" style={{ padding: '1.5rem', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
+            <div className="glass highlight-box" style={{ padding: '1.5rem', border: '1px solid rgba(16, 185, 129, 0.2)', marginBottom: '1.5rem' }}>
               <Zap size={24} className="neon-text" style={{ marginBottom: '1rem' }} />
               <h3 style={{ marginBottom: '0.5rem' }}>Need Points?</h3>
               <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '1.5rem' }}>Stake your USDC in the Neon Vault to generate prediction points instantly.</p>
               <button className="glow-btn" style={{ width: '100%' }} onClick={() => onNavigate?.('vault')}>Enter Vault</button>
+            </div>
+
+            <div className="glass" style={{ padding: '1.5rem' }}>
+              <h3 className="section-title" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.9rem', marginBottom: '1rem' }}>
+                <HistoryIcon size={16} className="neon-yellow" /> History
+              </h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem', maxHeight: '300px', overflowY: 'auto', paddingRight: '0.5rem' }}>
+                {markets ? (markets as any[])
+                  .map((m, idx) => ({ ...m, id: idx + 1 }))
+                  .filter(m => m.resolved)
+                  .slice(-5)
+                  .reverse()
+                  .map(m => (
+                    <div key={m.id} style={{ fontSize: '0.75rem', padding: '0.75rem', background: 'rgba(255,255,255,0.02)', borderRadius: '8px', borderLeft: '2px solid var(--primary)' }}>
+                      <div style={{ color: 'var(--text-muted)', fontSize: '0.65rem', marginBottom: '0.2rem' }}>{m.category}</div>
+                      <div style={{ fontWeight: 600, lineHeight: 1.3, marginBottom: '0.4rem' }}>{m.description.slice(0, 40)}...</div>
+                      <div className="neon-text" style={{ fontSize: '0.65rem', fontWeight: 800 }}>RESULT: {m.result ? 'YES' : 'NO'}</div>
+                    </div>
+                  )) : <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>No settled markets yet.</div>}
+              </div>
             </div>
 
             {isOwner && (

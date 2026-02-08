@@ -66,6 +66,11 @@ body {
       text-shadow: 0 0 10px var(--primary-glow);
 }
 
+.neon-yellow {
+      color: #f59e0b;
+      text-shadow: 0 0 10px rgba(245, 158, 11, 0.4);
+}
+
 /* Landing Layout */
 .landing-container {
       min-height: 100vh;
