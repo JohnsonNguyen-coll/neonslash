@@ -8,33 +8,40 @@ import Dashboard from './components/Dashboard'
 import Vault from './components/Vault'
 import Bridge from './components/Bridge'
 import RewardCenter from './components/RewardCenter'
+import Docs from './components/Docs'
 
 function App() {
-  // 1. Khởi tạo trạng thái từ localStorage để giữ phiên làm việc khi F5
+  // 1. Khởi tạo trạng thái hoàn toàn dựa vào localStorage
+  // Nếu chưa bao giờ ấn "Start" thì mặc định luôn là false để xem Landing Page
   const [isLaunched, setIsLaunched] = useState(() => {
-    return localStorage.getItem('neon_launched') === 'true' || window.location.pathname !== '/'
+    return localStorage.getItem('neon_launched') === 'true'
   })
   
   const { isConnected } = useAccount()
   const navigate = useNavigate()
   const location = useLocation()
 
-  // 2. Lưu vào localStorage mỗi khi trạng thái thay đổi
+  // 2. Cập nhật localStorage khi isLaunched thay đổi
   useEffect(() => {
     if (isLaunched) {
       localStorage.setItem('neon_launched', 'true')
+    } else {
+      localStorage.removeItem('neon_launched')
     }
   }, [isLaunched])
 
-  // Proactive redirect if connected and launched
-  useEffect(() => {
-    if (isLaunched && location.pathname === '/') {
-       navigate('/dashboard')
-    }
-  }, [isLaunched, location.pathname, navigate])
+  // Gỡ bỏ logic tự động redirect sang /dashboard khi ở trang chủ
+  // Điều này giúp người dùng có thể xem Landing Page ngay cả khi đã từng "Launch" trước đó
+  // (Nếu họ chọn quay lại trang chủ)
 
-  if (!isLaunched) {
-    return <LandingPage onLaunch={() => setIsLaunched(true)} />
+  if (!isLaunched && location.pathname !== '/docs') {
+    return (
+      <Routes>
+        <Route path="/" element={<LandingPage onLaunch={() => setIsLaunched(true)} />} />
+        <Route path="/docs" element={<Docs />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    )
   }
 
   return (
@@ -53,12 +60,12 @@ function App() {
         backdropFilter: 'blur(10px)'
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '2rem' }}>
-          <Link to="/dashboard" className="logo" style={{ fontSize: '1.25rem', fontWeight: 900, textDecoration: 'none', color: 'white' }}>
+          <Link to={isLaunched ? "/dashboard" : "/"} className="logo" style={{ fontSize: '1.25rem', fontWeight: 900, textDecoration: 'none', color: 'white' }}>
             <Shield className="neon-text" style={{ verticalAlign: 'middle', marginRight: '0.5rem' }} /> 
             NEON<span className="neon-text">SLASH</span>
           </Link>
           
-          {isConnected && (
+          {isLaunched && isConnected && (
             <div style={{ display: 'flex', gap: '0.5rem' }}>
               <button 
                 className={`nav-btn ${location.pathname === '/dashboard' ? 'active' : ''}`}
@@ -89,6 +96,7 @@ function App() {
         </div>
 
         <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+          <Link to="/docs" style={{ color: 'var(--text-muted)', textDecoration: 'none', fontSize: '0.9rem', fontWeight: 600 }}>Docs</Link>
           <ConnectButton showBalance={false} chainStatus="icon" />
           <button 
             className="icon-btn" 
@@ -106,11 +114,13 @@ function App() {
       {/* Page Content with Routing */}
       <div className="content">
         <Routes>
+          <Route path="/" element={<LandingPage onLaunch={() => setIsLaunched(true)} />} />
+          <Route path="/docs" element={<Docs />} />
           <Route path="/dashboard" element={<Dashboard onNavigate={(v) => navigate(`/${v}`)} />} />
           <Route path="/bridge" element={<Bridge />} />
           <Route path="/vault" element={<Vault />} />
           <Route path="/rewards" element={<RewardCenter />} />
-          <Route path="*" element={<Navigate to="/dashboard" replace />} />
+          <Route path="*" element={<Navigate to={isLaunched ? "/dashboard" : "/"} replace />} />
         </Routes>
       </div>
 

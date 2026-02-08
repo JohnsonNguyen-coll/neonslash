@@ -1,11 +1,14 @@
 import { motion } from 'framer-motion'
 import { Shield, Zap, TrendingUp, Trophy, ArrowRight } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 
 interface LandingPageProps {
   onLaunch: () => void
 }
 
 const LandingPage = ({ onLaunch }: LandingPageProps) => {
+  const navigate = useNavigate()
+
   return (
     <div className="landing-container">
       <div className="hero-gradient" />
@@ -34,7 +37,7 @@ const LandingPage = ({ onLaunch }: LandingPageProps) => {
           <button className="glow-btn" onClick={onLaunch}>
             Start Predicting <ArrowRight size={18} />
           </button>
-          <button className="btn-secondary">
+          <button className="btn-secondary" onClick={() => navigate('/docs')}>
             How it Works
           </button>
         </div>
