@@ -95,6 +95,9 @@ const HistoryItem = ({ market, address, showNotification, refetchMarkets }: any)
 
   const isWinner = market.resolved && (prediction === market.result)
   
+  const now = Math.floor(Date.now() / 1000)
+  const isExpired = now > Number(market.deadline)
+
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="glass" style={{ padding: '1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
       <div style={{ flex: 1 }}>
@@ -111,7 +114,9 @@ const HistoryItem = ({ market, address, showNotification, refetchMarkets }: any)
 
       <div style={{ textAlign: 'right', minWidth: '140px' }}>
         {!market.resolved ? (
-          <div className="badge" style={{ background: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6' }}>STILL ACTIVE</div>
+          <div className="badge" style={{ background: isExpired ? 'rgba(245, 158, 11, 0.1)' : 'rgba(59, 130, 246, 0.1)', color: isExpired ? '#f59e0b' : '#3b82f6' }}>
+            {isExpired ? 'RESOLVING...' : 'STILL ACTIVE'}
+          </div>
         ) : isWinner ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', alignItems: 'flex-end' }}>
              <span className="badge-green badge">YOU WON</span>
@@ -148,12 +153,15 @@ const PredictionCard = ({ id, market, showNotification, userPoints, refetchMarke
   const yesPct = total > 0 ? (Number(market.totalYes) / total * 100).toFixed(0) : '50'
   const noPct = total > 0 ? (Number(market.totalNo) / total * 100).toFixed(0) : '50'
 
+  const now = Math.floor(Date.now() / 1000)
+  const isExpired = now > Number(market.deadline)
+
   return (
-    <motion.div whileHover={{ y: -4 }} className="glass" style={{ padding: '1.5rem', opacity: market.resolved ? 0.7 : 1 }}>
+    <motion.div whileHover={{ y: -4 }} className="glass" style={{ padding: '1.5rem', opacity: (market.resolved || isExpired) ? 0.7 : 1 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem' }}>
         <span className="badge-green badge">{market.category}</span>
         <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-          {market.resolved ? "Market Resolved" : `Ends: ${new Date(Number(market.deadline) * 1000).toLocaleDateString()}`}
+          {market.resolved ? "Market Resolved" : isExpired ? "Awaiting Resolution" : `Ends: ${new Date(Number(market.deadline) * 1000).toLocaleDateString()}`}
         </span>
       </div>
       <h3 style={{ fontSize: '1.1rem', marginBottom: '1.5rem', lineHeight: 1.4 }}>{market.description}</h3>
@@ -169,7 +177,7 @@ const PredictionCard = ({ id, market, showNotification, userPoints, refetchMarke
         </div>
       </div>
 
-      {!market.resolved && (
+      {!market.resolved && !isExpired && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
           <div style={{ background: 'rgba(0,0,0,0.2)', padding: '1rem', borderRadius: '12px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.8rem' }}>
@@ -211,6 +219,11 @@ const PredictionCard = ({ id, market, showNotification, userPoints, refetchMarke
                showNotification={showNotification}
                refetchMarkets={refetchMarkets}
             />
+         </div>
+      )}
+      {!market.resolved && isExpired && (
+         <div style={{ textAlign: 'center', padding: '1rem', background: 'rgba(255,255,255,0.05)', borderRadius: '12px', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+            The event has ended. Waiting for the Prophet Agent to verify the result...
          </div>
       )}
     </motion.div>
@@ -288,10 +301,17 @@ const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void }) => {
   const { data: pointsRaw } = useReadContract({ address: VAULT_ADDRESS as `0x${string}`, abi: VAULT_ABI, functionName: 'getPoints', args: address ? [address] : undefined, query: { enabled: !!address && !isNotOnArc } })
   const { data: markets, refetch: refetchMarkets } = useReadContract({ address: VAULT_ADDRESS as `0x${string}`, abi: VAULT_ABI, functionName: 'getAllMarkets', query: { enabled: !isNotOnArc } })
 
-  const filteredMarkets = markets ? (markets as any[]).map((m, idx) => ({ ...m, id: idx + 1 })).filter(m => activeCategory === 'All' || m.category === activeCategory) : []
-  
-  const totalPages = Math.max(1, Math.ceil(filteredMarkets.length / MARKETS_PER_PAGE))
-  const paginatedMarkets = filteredMarkets.slice((currentPage - 1) * MARKETS_PER_PAGE, currentPage * MARKETS_PER_PAGE)
+  // Main Market Grid: Show only active (not resolved and not expired)
+  const activeMarkets = markets ? (markets as any[]).map((m, idx) => ({ ...m, id: idx + 1 })).filter(m => {
+    const now = Math.floor(Date.now() / 1000)
+    const isExpired = now > Number(m.deadline)
+    const matchCategory = activeCategory === 'All' || m.category === activeCategory
+    return matchCategory && !m.resolved && !isExpired
+  }) : []
+
+  // History: This is handled by a special case in the UI to show all markets the user bet on
+  const totalPages = Math.max(1, Math.ceil(activeMarkets.length / MARKETS_PER_PAGE))
+  const paginatedMarkets = activeMarkets.slice((currentPage - 1) * MARKETS_PER_PAGE, currentPage * MARKETS_PER_PAGE)
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg-dark)', color: 'white' }}>
@@ -349,19 +369,19 @@ const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void }) => {
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                     {(markets as any[]).map((m, idx) => ({ ...m, id: idx + 1 })).reverse().map(m => (
                       <HistoryItem key={m.id} market={m} address={address} showNotification={showNotification} refetchMarkets={refetchMarkets} />
-                    ))}
+                    )).filter((item: any) => item !== null)}
                   </div>
                 ) : <div className="empty-state">No betting history found.</div>
               ) : (
                 paginatedMarkets.length > 0 ? paginatedMarkets.map(m => (
                   <PredictionCard key={m.id} id={m.id} market={m} showNotification={showNotification} userPoints={Number(pointsRaw || 0)} refetchMarkets={refetchMarkets} />
                 )) : (
-                  <div className="empty-state">No active markets found.</div>
+                  <div className="empty-state">No active {activeCategory !== 'All' ? activeCategory : ''} markets found.</div>
                 )
               )}
             </div>
 
-            {activeCategory !== 'History' && filteredMarkets.length > MARKETS_PER_PAGE && (
+            {activeCategory !== 'History' && activeMarkets.length > MARKETS_PER_PAGE && (
               <div className="pagination">
                 <button 
                   disabled={currentPage === 1} 
