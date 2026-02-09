@@ -37,19 +37,43 @@ const Vault = () => {
   const { data: usdcBalance, refetch: refetchUSDC } = useReadContract({ address: USDC_ADDRESS as `0x${string}`, abi: USDC_ABI, functionName: 'balanceOf', args: address ? [address] : undefined })
   const { data: stakedUSDC, refetch: refetchStaked } = useReadContract({ address: VAULT_ADDRESS as `0x${string}`, abi: VAULT_ABI, functionName: 'stakedUSDC', args: address ? [address] : undefined })
   const { data: points, refetch: refetchPoints } = useReadContract({ address: VAULT_ADDRESS as `0x${string}`, abi: VAULT_ABI, functionName: 'getPoints', args: address ? [address] : undefined })
+  const { data: pointBalances, refetch: refetchBalances } = useReadContract({ address: VAULT_ADDRESS as `0x${string}`, abi: VAULT_ABI, functionName: 'pointBalances', args: address ? [address] : undefined })
+  const { data: lastClaimTimestamp, refetch: refetchClaimTime } = useReadContract({ address: VAULT_ADDRESS as `0x${string}`, abi: VAULT_ABI, functionName: 'lastClaimTimestamp', args: address ? [address] : undefined })
   const { data: allowance, refetch: refetchAllowance } = useReadContract({ address: USDC_ADDRESS as `0x${string}`, abi: USDC_ABI, functionName: 'allowance', args: address ? [address, VAULT_ADDRESS as `0x${string}`] : undefined })
   const { data: stakeTimestamp, refetch: refetchTimestamp } = useReadContract({ address: VAULT_ADDRESS as `0x${string}`, abi: VAULT_ABI, functionName: 'stakeTimestamp', args: address ? [address] : undefined })
 
   const { writeContractAsync } = useWriteContract()
 
+  // Cooldown logic
+  const [timeLeft, setTimeLeft] = useState<number>(0)
+  
+  useEffect(() => {
+    if (!lastClaimTimestamp) return
+    const interval = setInterval(() => {
+      const now = Math.floor(Date.now() / 1000)
+      const nextClaim = Number(lastClaimTimestamp) + 86400
+      const diff = nextClaim - now
+      setTimeLeft(diff > 0 ? diff : 0)
+    }, 1000)
+    return () => clearInterval(interval)
+  }, [lastClaimTimestamp])
+
+  const formatTime = (seconds: number) => {
+    const h = Math.floor(seconds / 3600)
+    const m = Math.floor((seconds % 3600) / 60)
+    const s = seconds % 60
+    return `${h}h ${m}m ${s}s`
+  }
+
   const refreshData = async () => {
-    // Force clear TanStack Query cache for these specific keys
     await queryClient.invalidateQueries()
     refetchUSDC()
     refetchStaked()
     refetchPoints()
     refetchAllowance()
     refetchTimestamp()
+    refetchBalances()
+    refetchClaimTime()
     console.log("Data refreshed")
   }
 
@@ -61,7 +85,6 @@ const Vault = () => {
     setIsProcessing(true)
 
     try {
-      // 1. Check & Approve
       if (!allowance || (allowance as bigint) < amount) {
         setNotification({ message: 'Approving USDC... Please sign in wallet.', type: 'success' })
         const approveHash = await writeContractAsync({
@@ -74,7 +97,6 @@ const Vault = () => {
         setNotification({ message: 'Approve successful! Now staking...', type: 'success' })
       }
 
-      // 2. Stake
       const stakeHash = await writeContractAsync({
         address: VAULT_ADDRESS as `0x${string}`,
         abi: VAULT_ABI,
@@ -87,8 +109,6 @@ const Vault = () => {
 
       setNotification({ message: 'Transaction Confirmed! Points Generated.', type: 'success' })
       setStakeAmount('')
-      
-      // Critical: Wait a bit for RPC to catch up then force refresh
       setTimeout(refreshData, 2000)
     } catch (err: any) {
       setNotification({ message: err.shortMessage || err.message || 'Transaction failed', type: 'error' })
@@ -124,6 +144,13 @@ const Vault = () => {
       setIsProcessing(false)
     }
   }
+
+  // ... (stake/withdraw functions same as before)
+  
+  const canClaim = timeLeft === 0 && stakedUSDC && (stakedUSDC as bigint) > 0n
+  const pendingYield = points !== undefined && pointBalances !== undefined 
+    ? Number(points) - Number(pointBalances) 
+    : 0
 
   const lockEnd = stakeTimestamp ? Number(stakeTimestamp) + LOCK_PERIOD : 0
   const isLocked = Math.floor(Date.now() / 1000) < lockEnd
@@ -178,6 +205,10 @@ const Vault = () => {
         <div className="glass" style={{ padding: '1.5rem', textAlign: 'center' }}>
           <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', textTransform: 'uppercase', marginBottom: '0.5rem' }}>Predictions Pts</div>
           <div style={{ fontSize: '1.8rem', fontWeight: 800 }}>{points !== undefined ? Number(points).toLocaleString() : '---'} <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>PTS</span></div>
+          <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: '0.3rem' }}>
+            Settled: {pointBalances !== undefined ? Number(pointBalances).toLocaleString() : '---'} • 
+            Claimable: <span className="neon-text">{pendingYield.toLocaleString()}</span>
+          </div>
         </div>
       </div>
 
@@ -191,30 +222,54 @@ const Vault = () => {
           <button onClick={refreshData} className="nav-btn" style={{ fontSize: '0.7rem', height: 'auto', padding: '0.5rem 1.5rem', borderRadius: '100px' }}>
               <RefreshCw size={14} className={isProcessing ? "animate-spin" : ""} style={{ marginRight: '0.5rem' }} /> Sync Wallet Data
           </button>
-          <button 
-            onClick={async () => {
-              setIsProcessing(true);
-              try {
-                const hash = await writeContractAsync({
-                  address: VAULT_ADDRESS as `0x${string}`,
-                  abi: VAULT_ABI,
-                  functionName: 'claimYield'
-                });
-                await publicClient?.waitForTransactionReceipt({ hash });
-                setNotification({ message: 'Yield claimed successfully!', type: 'success' });
-                refreshData();
-              } catch (e: any) {
-                setNotification({ message: e.message, type: 'error' });
-              } finally {
-                setIsProcessing(false);
-              }
-            }} 
-            disabled={isProcessing || !stakedUSDC || (stakedUSDC as bigint) === 0n}
-            className="glow-btn" 
-            style={{ fontSize: '0.7rem', height: 'auto', padding: '0.5rem 1.5rem', borderRadius: '100px' }}
-          >
-              <Zap size={14} style={{ marginRight: '0.5rem' }} /> Claim Daily Points
-          </button>
+          <div style={{ position: 'relative' }}>
+            <button 
+              onClick={async () => {
+                if (!canClaim) return
+                setIsProcessing(true);
+                try {
+                  const hash = await writeContractAsync({
+                    address: VAULT_ADDRESS as `0x${string}`,
+                    abi: VAULT_ABI,
+                    functionName: 'claimYield'
+                  });
+                  await publicClient?.waitForTransactionReceipt({ hash });
+                  setNotification({ message: `Yield of ${pendingYield.toLocaleString()} Points claimed!`, type: 'success' });
+                  refreshData();
+                } catch (e: any) {
+                  setNotification({ message: e.message, type: 'error' });
+                } finally {
+                  setIsProcessing(false);
+                }
+              }} 
+              disabled={isProcessing || !canClaim}
+              className={canClaim ? "glow-btn" : "nav-btn"} 
+              style={{ 
+                fontSize: '0.7rem', 
+                height: 'auto', 
+                padding: '0.5rem 1.5rem', 
+                borderRadius: '100px',
+                opacity: canClaim ? 1 : 0.6,
+                cursor: canClaim ? 'pointer' : 'not-allowed'
+              }}
+            >
+                <Zap size={14} style={{ marginRight: '0.5rem' }} /> 
+                {isProcessing ? 'Claiming...' : canClaim ? 'Claim Daily Points' : 'Next Claim Ready Soon'}
+            </button>
+            {timeLeft > 0 && stakedUSDC && (stakedUSDC as bigint) > 0n && (
+              <div style={{ 
+                position: 'absolute', 
+                top: '110%', 
+                left: '50%', 
+                transform: 'translateX(-50%)', 
+                fontSize: '0.6rem', 
+                color: 'var(--text-muted)',
+                whiteSpace: 'nowrap'
+              }}>
+                Available in: {formatTime(timeLeft)}
+              </div>
+            )}
+          </div>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem', maxWidth: '1000px', margin: '0 auto' }}>
