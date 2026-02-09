@@ -160,6 +160,18 @@ class RealOracleAgent:
         except Exception as e:
             print(f"❌ Football Resolution Error: {e}")
             return None
+
+    def resolve_legacy_football(self, description):
+        """Specifically handle the 'Match Day' format for older markets"""
+        try:
+            import re
+            match = re.search(r'Match Day: (.+) vs (.+)\. Will (.+) win\?', description)
+            if match:
+                home, away, target = match.group(1), match.group(2), match.group(3)
+                print(f"🕵️ Legacy Football match found: {home} vs {away}. Checking API...")
+                return self.resolve_football_match(home, away)
+            return None
+        except: return None
     
     # ==================== CRYPTO ORACLE ====================
     
@@ -419,70 +431,68 @@ class RealOracleAgent:
     
     def parse_market_details(self, description, category):
         """
-        Parse market description to extract parameters for resolution
-        Returns: dict with type, teams, symbol, target, etc.
+        Ultra-flexible parser to handle various market formats (including legacy ones)
         """
-        import re
+        desc_upper = description.upper()
         
-        if category == "Football":
-            # Format: "Football: Team A vs Team B (League) - Will Team A win?"
-            match = re.search(r'Football: (.+) vs (.+) \((.+)\) - Will (.+) win\?', description)
+        # 1. FOOTBALL DETECTION
+        if category == "Football" or " VS " in desc_upper:
+            import re
+            # Try to find teams: "Team A vs Team B"
+            match = re.search(r'([a-zA-Z\s]+) VS ([a-zA-Z\s\(\)]+)', description, re.IGNORECASE)
             if match:
-                return {
-                    'type': 'football',
-                    'home': match.group(1),
-                    'away': match.group(2),
-                    'league': match.group(3),
-                    'target_team': match.group(4)
-                }
-            
-            # Legacy Matcher: "Match Day: Team A vs Team B. Will Team A win?"
-            legacy_match = re.search(r'Match Day: (.+) vs (.+)\. Will (.+) win\?', description)
-            if legacy_match:
-                return {
-                    'type': 'football',
-                    'home': legacy_match.group(1),
-                    'away': legacy_match.group(2),
-                    'league': 'Serie A', # Default for old tests
-                    'target_team': legacy_match.group(3)
-                }
-        
-        elif category == "Crypto":
-            # Format: "Crypto: Will Bitcoin (BTC) reach $105000 in next 2 hours?"
-            match = re.search(r'Will (.+) \((.+)\) reach \$(\d+\.?\d*)', description)
-            if match:
-                return {
-                    'type': 'crypto',
-                    'symbol': match.group(2),
-                    'target_price': float(match.group(3))
-                }
-        
-        elif category == "Stocks":
-            # Format: "Stocks: Will TSLA surge +2% in next hour?"
-            match = re.search(r'Will ([A-Z]+) surge \+(\d+\.?\d*)%', description)
-            if match:
-                return {
-                    'type': 'stock',
-                    'symbol': match.group(1),
-                    'threshold': float(match.group(2))
-                }
-            
-            # Legacy Matcher for News: "News: '...' - Will this asset surge +2% next hour?"
-            news_match = re.search(r"News: '(.+)' - Will this asset surge \+(\d+)%", description)
-            if news_match:
-                # We can't easily resolve random news without a symbol, 
-                # but we can mock it or skip it. Let's try to find a symbol in the headline.
-                headline = news_match.group(1).upper()
-                symbol = "BTC-USD" # Default fallback
-                if "ETH" in headline: symbol = "ETH-USD"
-                elif "META" in headline: symbol = "META"
-                elif "AMZN" in headline: symbol = "AMZN"
+                home = match.group(1).strip().split('(')[0].strip()
+                away = match.group(2).strip().split('.')[0].split('(')[0].strip()
+                # Clean up "Match Day: " or "Football: " prefixes
+                home = home.replace("Match Day: ", "").replace("Football: ", "")
+                
+                # Determine target team (usually the one mentioned at the end or the home team)
+                target_team = home
+                if "WILL " in desc_upper and " WIN?" in desc_upper:
+                    target_match = re.search(r'WILL ([a-zA-Z\s]+) WIN\?', description, re.IGNORECASE)
+                    if target_match:
+                        target_team = target_match.group(1).strip()
                 
                 return {
-                    'type': 'stock',
-                    'symbol': symbol,
-                    'threshold': float(news_match.group(2))
+                    'type': 'football',
+                    'home': home,
+                    'away': away,
+                    'target_team': target_team
                 }
+
+        # 2. CRYPTO DETECTION
+        if category == "Crypto" or any(x in desc_upper for x in ["BITCOIN", "(BTC)", "ETHEREUM", "(ETH)", "SOLANA"]):
+            import re
+            # Extract symbol: e.g. (BTC) or Bitcoin
+            symbol = "BTC"
+            if "ETH" in desc_upper: symbol = "ETH"
+            elif "SOL" in desc_upper: symbol = "SOL"
+            
+            # Extract target price: e.g. $105000
+            price_match = re.search(r'\$(\d+\.?\d*)', description)
+            if price_match:
+                return {
+                    'type': 'crypto',
+                    'symbol': symbol,
+                    'target_price': float(price_match.group(1))
+                }
+
+        # 3. STOCK/NEWS DETECTION
+        if category == "Stocks" or "SURGE" in desc_upper:
+            import re
+            # Look for tickers like TSLA, AAPL, AMZN
+            ticker_match = re.search(r'\b([A-Z]{3,5})\b', description)
+            symbol = ticker_match.group(1) if ticker_match else "BTC-USD"
+            
+            # Look for percentage
+            pct_match = re.search(r'(\d+)%', description)
+            threshold = float(pct_match.group(1)) if pct_match else 2.0
+            
+            return {
+                'type': 'stock',
+                'symbol': symbol,
+                'threshold': threshold
+            }
         
         return None
     
@@ -505,55 +515,55 @@ class RealOracleAgent:
                     resolved = m[4]
                     deadline = m[6]
                     
-                    # Skip if already resolved or not expired
-                    if resolved or now < deadline:
-                        continue
+                    # Resolution Logic: 
+                    # We resolve if:
+                    # 1. It is expired (now > deadline) -> Must resolve.
+                    # 2. Or if we found a DEFINITIVE real-world result (Early Resolution)
                     
-                    print(f"\n🎯 Resolving Market #{market_id}")
-                    print(f"   Description: {description}")
-                    
-                    # Parse market details
-                    details = self.parse_market_details(description, category)
-                    
-                    if not details:
-                        print(f"   ⚠️ Cannot parse market format")
-                        continue
-                    
-                    result = None
-                    
-                    # Call appropriate oracle
-                    if details['type'] == 'football':
-                        result = self.resolve_football_match(
-                            details['home'],
-                            details['away']
-                        )
-                    
-                    elif details['type'] == 'crypto':
-                        # Calculate start time (deadline - duration)
-                        start_time = deadline - 7200  # Assuming 2 hour markets
-                        result = self.resolve_crypto_target(
-                            details['symbol'],
-                            details['target_price'],
-                            start_time,
-                            deadline
-                        )
-                    
-                    elif details['type'] == 'stock':
-                        start_time = deadline - 3600  # 1 hour
-                        result = self.resolve_stock_movement(
-                            details['symbol'],
-                            details['threshold'],
-                            start_time,
-                            deadline
-                        )
-                    
-                    # Submit resolution if we have a definitive result
-                    if result is not None:
-                        self.submit_resolution(market_id, result, description)
-                        resolved_count += 1
-                        time.sleep(3)  # Rate limiting
-                    else:
-                        print(f"   ⏳ Data not available yet, will retry later")
+                    if not resolved:
+                        # 1. Parse details first
+                        details = self.parse_market_details(description, category)
+                        if not details:
+                            print(f"   ⚠️ Cannot parse market format for #{market_id}")
+                            continue
+
+                        result = None
+                        # Use the PARSED type instead of the CONTRACT category for better accuracy
+                        market_type = details.get('type')
+                        
+                        if market_type == 'football':
+                            result = self.resolve_football_match(details['home'], details['away'])
+                        
+                        elif market_type == 'crypto':
+                            # For crypto/stocks, resolve after deadline or if we have definitive data
+                            if now > deadline or "FORCE" in desc_upper:
+                                start_time = deadline - 7200
+                                result = self.resolve_crypto_target(
+                                    details.get('symbol', 'BTC'), 
+                                    details.get('target_price', 0), 
+                                    start_time, 
+                                    deadline
+                                )
+                        
+                        elif market_type == 'stock':
+                            if now > deadline or "FORCE" in desc_upper:
+                                start_time = deadline - 3600
+                                result = self.resolve_stock_movement(
+                                    details.get('symbol', 'TSLA'), 
+                                    details.get('threshold', 2.0), 
+                                    start_time, 
+                                    deadline
+                                )
+                        
+                        # Trigger resolution
+                        if result is not None:
+                            print(f"\n🎯 Resolving Market #{market_id} ({market_type.upper()})")
+                            print(f"   Description: {description}")
+                            self.submit_resolution(market_id, result, description)
+                            resolved_count += 1
+                            time.sleep(3)
+                        elif now > deadline:
+                            print(f"   ⏳ Market #{market_id} ({market_type}) expired but no data yet. Retrying...")
                     
                 except Exception as e:
                     print(f"   ❌ Error resolving market #{market_id}: {e}")
@@ -605,18 +615,18 @@ class RealOracleAgent:
             try:
                 cycle += 1
                 print(f"\n{'='*60}")
-                print(f"🔄 Cycle #{cycle} - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                print(f"🔄 Cycle #{cycle} - {datetime.now().strftime('%H:%M:%S')}")
                 print(f"{'='*60}")
                 
-                # 1. Create new markets (every 6 hours)
-                if cycle % 24 == 1:  # Every 6 hours if loop runs every 15min
-                    print("\n📝 CREATING NEW MARKETS...")
+                # 1. Resolve expired/past markets FIRST (Priority)
+                print("\n⚖️ STEP 1: RESOLVING EXPIRED/PAST MARKETS...")
+                self.resolve_expired_markets()
+                
+                # 2. Create new markets SECOND (Only every 6 hours)
+                if cycle % 24 == 1:
+                    print("\n📝 STEP 2: CREATING NEW MARKETS...")
                     self.create_football_markets()
                     self.create_crypto_markets()
-                
-                # 2. Resolve expired markets (every cycle)
-                print("\n⚖️ RESOLVING EXPIRED MARKETS...")
-                self.resolve_expired_markets()
                 
                 # 3. Wait before next cycle
                 wait_minutes = 15
