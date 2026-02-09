@@ -173,165 +173,101 @@ class RealOracleAgent:
             return None
         except: return None
     
-    # ==================== CRYPTO ORACLE ====================
+    # ==================== CRYPTO ORACLE (Binance API) ====================
     
-    def get_crypto_price(self, symbol, timeframe_hours=1):
-        """
-        Get real-time crypto price and historical data
-        Returns: dict with current_price, high, low, change
-        """
+    def get_crypto_price(self, symbol):
+        """Get real-time crypto price from Binance"""
         try:
-            # Map common names to Yahoo Finance tickers
-            ticker_map = {
-                'BTC': 'BTC-USD',
-                'ETH': 'ETH-USD',
-                'USDC': 'USDC-USD',
-                'SOL': 'SOL-USD',
-                'DOGE': 'DOGE-USD'
-            }
-            
-            ticker_symbol = ticker_map.get(symbol, f"{symbol}-USD")
-            
-            # Get historical data
-            crypto = yf.Ticker(ticker_symbol)
-            hist = crypto.history(period=f'{timeframe_hours}h', interval='1m')
-            
-            if hist.empty:
-                # Fallback to 1 day if minute data unavailable
-                hist = crypto.history(period='1d', interval='5m')
-            
-            if hist.empty:
-                print(f"❌ No data for {ticker_symbol}")
-                return None
-            
-            current_price = hist['Close'].iloc[-1]
-            high = hist['High'].max()
-            low = hist['Low'].min()
-            change_pct = ((current_price - hist['Close'].iloc[0]) / hist['Close'].iloc[0]) * 100
-            
-            return {
-                'symbol': symbol,
-                'current_price': round(current_price, 2),
-                'high': round(high, 2),
-                'low': round(low, 2),
-                'change_pct': round(change_pct, 2)
-            }
-            
+            ticker = f"{symbol}USDT"
+            url = f"https://api.binance.com/api/v3/ticker/price?symbol={ticker}"
+            r = requests.get(url, timeout=10)
+            data = r.json()
+            if 'price' in data:
+                return {
+                    'symbol': symbol,
+                    'current_price': float(data['price'])
+                }
+            return None
         except Exception as e:
-            print(f"❌ Crypto Price Error for {symbol}: {e}")
+            print(f"❌ Binance Price Error for {symbol}: {e}")
             return None
     
     def resolve_crypto_target(self, symbol, target_price, start_timestamp, end_timestamp):
         """
-        Check if crypto hit target price in given timeframe
-        Returns: True if target was hit, False otherwise
+        Check if crypto hit target price using Binance K-line data
         """
         try:
-            ticker_map = {
-                'BTC': 'BTC-USD',
-                'ETH': 'ETH-USD',
-                'USDC': 'USDC-USD',
-                'SOL': 'SOL-USD'
-            }
+            ticker = f"{symbol}USDT"
+            # Binance klines API (1h intervals)
+            url = f"https://api.binance.com/api/v3/klines?symbol={ticker}&interval=1h&startTime={int(start_timestamp * 1000)}&endTime={int(end_timestamp * 1000)}"
+            r = requests.get(url, timeout=10)
+            data = r.json()
             
-            ticker_symbol = ticker_map.get(symbol, f"{symbol}-USD")
-            crypto = yf.Ticker(ticker_symbol)
-            
-            # Convert timestamps to datetime
-            start_dt = datetime.fromtimestamp(start_timestamp)
-            end_dt = datetime.fromtimestamp(end_timestamp)
-            
-            # Fetch data for the specific window
-            hist = crypto.history(
-                start=start_dt.strftime('%Y-%m-%d'),
-                end=(end_dt + timedelta(days=1)).strftime('%Y-%m-%d'),
-                interval='1h'
-            )
-            
-            if hist.empty:
-                print(f"❌ No historical data for {ticker_symbol}")
+            if not isinstance(data, list):
+                print(f"❌ Invalid data from Binance for {ticker}")
                 return None
             
-            # Filter to exact timeframe
-            hist.index = hist.index.tz_localize(None)
-            window_data = hist[(hist.index >= start_dt) & (hist.index <= end_dt)]
+            max_high = 0.0
+            for k in data:
+                high = float(k[2]) # Index 2 is High price
+                if high > max_high:
+                    max_high = high
             
-            if window_data.empty:
-                print(f"❌ No data in timeframe for {ticker_symbol}")
-                return None
-            
-            max_price = window_data['High'].max()
-            result = max_price >= target_price
-            
-            print(f"📊 {symbol} Target: ${target_price} | Actual High: ${max_price:.2f} | Result: {result}")
+            result = max_high >= target_price
+            print(f"📊 {symbol} Target: ${target_price} | Actual High: ${max_high:.2f} | Result: {result}")
             return result
             
         except Exception as e:
-            print(f"❌ Crypto Resolution Error: {e}")
+            print(f"❌ Crypto Resolution Error (Binance): {e}")
             return None
     
-    # ==================== STOCK ORACLE ====================
+    # ==================== STOCK ORACLE (Finnhub API) ====================
     
     def get_stock_price(self, ticker_symbol):
-        """
-        Get real-time stock price
-        """
+        """Get real-time stock price from Finnhub"""
         try:
-            stock = yf.Ticker(ticker_symbol)
-            hist = stock.history(period='1d', interval='1m')
-            
-            if hist.empty:
-                return None
-            
-            current_price = hist['Close'].iloc[-1]
-            return {
-                'symbol': ticker_symbol,
-                'current_price': round(current_price, 2),
-                'change_pct': round(((current_price - hist['Open'].iloc[0]) / hist['Open'].iloc[0]) * 100, 2)
-            }
-            
+            url = f"https://finnhub.io/api/v1/quote?symbol={ticker_symbol}&token=sandbox_c8v2pka201q9864234v0"
+            r = requests.get(url, timeout=10)
+            data = r.json()
+            if 'c' in data and data['c'] > 0:
+                return {
+                    'symbol': ticker_symbol,
+                    'current_price': float(data['c'])
+                }
+            return None
         except Exception as e:
-            print(f"❌ Stock Price Error for {ticker_symbol}: {e}")
+            print(f"❌ Finnhub Stock Price Error for {ticker_symbol}: {e}")
             return None
     
     def resolve_stock_movement(self, ticker_symbol, threshold_pct, start_timestamp, end_timestamp):
         """
-        Check if stock moved by threshold % in timeframe
-        Returns: True if movement >= threshold, False otherwise
+        Check if stock moved using Finnhub candles
         """
         try:
-            stock = yf.Ticker(ticker_symbol)
+            # Finnhub candles: resolution '60' (1 hour)
+            url = f"https://finnhub.io/api/v1/stock/candle?symbol={ticker_symbol}&resolution=60&from={int(start_timestamp)}&to={int(end_timestamp)}&token=sandbox_c8v2pka201q9864234v0"
+            r = requests.get(url, timeout=10)
+            data = r.json()
             
-            start_dt = datetime.fromtimestamp(start_timestamp)
-            end_dt = datetime.fromtimestamp(end_timestamp)
-            
-            hist = stock.history(
-                start=start_dt.strftime('%Y-%m-%d'),
-                end=(end_dt + timedelta(days=1)).strftime('%Y-%m-%d'),
-                interval='1h'
-            )
-            
-            if hist.empty or len(hist) < 2:
+            if data.get('s') != 'ok':
                 return None
             
-            # Filter to timeframe
-            hist.index = hist.index.tz_localize(None)
-            window_data = hist[(hist.index >= start_dt) & (hist.index <= end_dt)]
+            highs = data.get('h', [])
+            closes = data.get('c', [])
             
-            if window_data.empty or len(window_data) < 2:
+            if not highs or not closes:
                 return None
-            
-            start_price = window_data['Close'].iloc[0]
-            max_price = window_data['High'].max()
-            actual_change = ((max_price - start_price) / start_price) * 100
+                
+            start_price = closes[0]
+            max_high = max(highs)
+            actual_change = ((max_high - start_price) / start_price) * 100
             
             result = actual_change >= threshold_pct
-            
             print(f"📈 {ticker_symbol} Target: +{threshold_pct}% | Actual: +{actual_change:.2f}% | Result: {result}")
             return result
             
         except Exception as e:
-            print(f"❌ Stock Resolution Error: {e}")
+            print(f"❌ Stock Resolution Error (Finnhub): {e}")
             return None
     
     # ==================== MARKET CREATION ====================
@@ -622,8 +558,8 @@ class RealOracleAgent:
                 print("\n⚖️ STEP 1: RESOLVING EXPIRED/PAST MARKETS...")
                 self.resolve_expired_markets()
                 
-                # 2. Create new markets SECOND (Only every 6 hours)
-                if cycle % 24 == 1:
+                # 2. Create new markets SECOND (Every cycle for testing/visibility)
+                if True: # Force creation every cycle during setup
                     print("\n📝 STEP 2: CREATING NEW MARKETS...")
                     self.create_football_markets()
                     self.create_crypto_markets()

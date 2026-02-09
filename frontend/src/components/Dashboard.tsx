@@ -303,10 +303,8 @@ const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void }) => {
 
   // Main Market Grid: Show only active (not resolved and not expired)
   const activeMarkets = markets ? (markets as any[]).map((m, idx) => ({ ...m, id: idx + 1 })).filter(m => {
-    const now = Math.floor(Date.now() / 1000)
-    const isExpired = now > Number(m.deadline)
     const matchCategory = activeCategory === 'All' || m.category === activeCategory
-    return matchCategory && !m.resolved && !isExpired
+    return matchCategory && !m.resolved
   }) : []
 
   // History: This is handled by a special case in the UI to show all markets the user bet on
