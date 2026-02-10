@@ -68,6 +68,8 @@ class RealOracleAgent:
             }
             
             print(f"📡 Fetching football fixtures...")
+            seen_event_ids = set() # To prevent duplicates
+            
             for league_name, league_id in leagues.items():
                 try:
                     url = f"https://www.thesportsdb.com/api/v1/json/{FOOTBALL_API_KEY}/eventsnextleague.php?id={league_id}"
@@ -76,27 +78,44 @@ class RealOracleAgent:
                     
                     if data and data.get('events'):
                         print(f"   ✅ Found {len(data['events'])} events for {league_name}")
-                    for event in data['events'][:2]:  # Top 2 per league
-                        try:
-                            # Use date objects for cleaner comparison
-                            event_date = datetime.strptime(event['dateEvent'], '%Y-%m-%d').date()
-                            today = datetime.now().date()
-                            days_until = (event_date - today).days
+                        for event in data['events']:
+                            event_id = event['idEvent']
                             
-                            # Matches from today up to 7 days in the future
-                            if 0 <= days_until <= 7:
-                                fixtures.append({
-                                    'home': event['strHomeTeam'],
-                                    'away': event['strAwayTeam'],
-                                    'league': league_name,
-                                    'date': event['dateEvent'],
-                                    'time': event.get('strTime', '00:00:00'),
-                                    'event_id': event['idEvent']
-                                })
-                        except Exception as e:
-                            print(f"   ⚠️ Error parsing event: {e}")
-                            continue
+                            # Skip if we already processed this event
+                            if event_id in seen_event_ids:
+                                continue
+                            
+                            try:
+                                # Use date objects for cleaner comparison
+                                event_date = datetime.strptime(event['dateEvent'], '%Y-%m-%d').date()
+                                today = datetime.now().date()
+                                days_until = (event_date - today).days
+                                
+                                # Matches from today up to 7 days in the future
+                                if 0 <= days_until <= 7:
+                                    # Use the ACTUAL league name from the API, not our loop variable
+                                    # This handles the case where test API keys return mismatched data
+                                    actual_league = event.get('strLeague', league_name)
+                                    
+                                    fixtures.append({
+                                        'home': event['strHomeTeam'],
+                                        'away': event['strAwayTeam'],
+                                        'league': actual_league,
+                                        'date': event['dateEvent'],
+                                        'time': event.get('strTime', '00:00:00'),
+                                        'event_id': event_id
+                                    })
+                                    seen_event_ids.add(event_id)
+                                    
+                                    if len(fixtures) >= max_fixtures:
+                                        break
+                            except Exception as e:
+                                print(f"   ⚠️ Error parsing event: {e}")
+                                continue
                     
+                    if len(fixtures) >= max_fixtures:
+                        break
+                        
                     time.sleep(1)  # Rate limiting
                     
                 except Exception as e:
@@ -105,7 +124,7 @@ class RealOracleAgent:
             if not fixtures:
                 print("   ℹ️ No upcoming fixtures found in next 7 days")
             
-            return fixtures[:max_fixtures]
+            return fixtures
             
         except Exception as e:
             print(f"❌ Football API Error: {e}")
