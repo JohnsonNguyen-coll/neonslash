@@ -71,33 +71,36 @@ class RealOracleAgent:
                 'French Ligue 1': '4334'
             }
             
+            print(f"📡 Fetching football fixtures...")
             for league_name, league_id in leagues.items():
                 try:
-                    # Get next 5 events for this league
                     url = f"https://www.thesportsdb.com/api/v1/json/{FOOTBALL_API_KEY}/eventsnextleague.php?id={league_id}"
                     r = requests.get(url, timeout=10)
                     data = r.json()
                     
                     if data and data.get('events'):
-                        for event in data['events'][:2]:  # Take top 2 from each league
+                        print(f"   ✅ Found {len(data['events'])} events for {league_name}")
+                        for event in data['events'][:2]:
                             event_date = datetime.strptime(event['dateEvent'], '%Y-%m-%d')
-                            # Only matches within next 7 days
                             if (event_date - today).days <= 7 and (event_date - today).days >= 0:
                                 fixtures.append({
                                     'home': event['strHomeTeam'],
                                     'away': event['strAwayTeam'],
                                     'league': league_name,
                                     'date': event['dateEvent'],
-                                    'time': event.get('strTime', 'TBD'),
+                                    'time': event.get('strTime', '00:00:00'),
                                     'event_id': event['idEvent']
                                 })
+                    else:
+                        print(f"   ℹ️ No upcoming events for {league_name}")
                     
-                    time.sleep(0.5)  # Rate limiting
+                    time.sleep(1) # More generous rate limit
                     
                 except Exception as e:
-                    print(f"Error fetching {league_name}: {e}")
-                    continue
+                    print(f"   ❌ Error fetching {league_name}: {e}")
             
+            if not fixtures:
+                print("   ⚠️ No fixtures found in next 7 days across all monitored leagues.")
             return fixtures[:max_fixtures]
             
         except Exception as e:
@@ -298,8 +301,8 @@ class RealOracleAgent:
             return []
     
     def create_football_markets(self):
-        """Create markets for real upcoming matches"""
-        fixtures = self.fetch_live_football_fixtures(max_fixtures=3)
+        """Create markets for real upcoming matches (Increased to 5)"""
+        fixtures = self.fetch_live_football_fixtures(max_fixtures=5)
         active = self.get_active_markets()
         active_descs = {m['description'] for m in active}
         
@@ -318,23 +321,38 @@ class RealOracleAgent:
                     print(f"⏭️ Match already started: {fixture['home']} vs {fixture['away']}")
     
     def create_crypto_markets(self):
-        """Create markets for crypto price targets"""
+        """Create markets for multiple crypto assets"""
         active = self.get_active_markets()
         active_descs = {m['description'] for m in active}
         
-        # Get current BTC price
-        btc_data = self.get_crypto_price('BTC', timeframe_hours=1)
+        # Monitor multiple assets
+        assets = [
+            ('BTC', 'Bitcoin', 0.012),   # +1.2% target
+            ('ETH', 'Ethereum', 0.015),  # +1.5% target
+            ('SOL', 'Solana', 0.020)     # +2.0% target
+        ]
         
-        if btc_data:
-            current_price = btc_data['current_price']
-            # Set realistic target: +1.5% from current
-            target = round(current_price * 1.015, 2)
-            
-            desc = f"Crypto: Will Bitcoin (BTC) reach ${target} in next 2 hours? (Current: ${current_price})"
-            
-            if desc not in active_descs:
-                self.deploy_market(desc, "Crypto", 7200)  # 2 hours
-                print(f"₿ Created BTC market: ${target} target")
+        for symbol, name, volatility in assets:
+            try:
+                # FIX: Check if ANY active market already exists for this symbol (e.g. "BTC")
+                already_has_asset = any(f"({symbol})" in m['description'] for m in active)
+                
+                if already_has_asset:
+                    print(f"⏭️ Skipping {symbol}: Existing market is still active.")
+                    continue
+
+                data = self.get_crypto_price(symbol)
+                if data:
+                    current_price = data['current_price']
+                    target = round(current_price * (1 + volatility), 2 if symbol != 'SOL' else 3)
+                    
+                    desc = f"Crypto: Will {name} ({symbol}) reach ${target} in next 2 hours? (Current: ${current_price})"
+                    
+                    self.deploy_market(desc, "Crypto", 7200)
+                    print(f"₿ Created {symbol} market: ${target} target")
+                    time.sleep(1) 
+            except Exception as e:
+                print(f"Error creating {symbol} market: {e}")
     
     def deploy_market(self, description, category, duration):
         """Deploy a single market to blockchain"""
@@ -450,6 +468,7 @@ class RealOracleAgent:
                     category = m[1]
                     resolved = m[4]
                     deadline = m[6]
+                    desc_upper = description.upper()
                     
                     # Resolution Logic: 
                     # We resolve if:
