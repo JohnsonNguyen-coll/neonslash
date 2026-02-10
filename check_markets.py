@@ -18,34 +18,48 @@ w3 = Web3(Web3.HTTPProvider(RPC_URL))
 contract = w3.eth.contract(address=w3.to_checksum_address(CONTRACT_ADDRESS), abi=ABI)
 
 def check():
-    count = contract.functions.marketCount().call()
-    print(f"Total Markets: {count}")
+    try:
+        count = contract.functions.marketCount().call()
+        print(f"Total Markets: {count}")
+    except Exception as e:
+        print(f"Error fetching market count: {e}")
+        return
     
     now = datetime.now().timestamp()
     active_count = 0
     pending_resolution = 0
     categories = {}
     
-    for i in range(1, count + 1):
-        m = contract.functions.markets(i).call()
-        desc, cat, tYes, tNo, resolved, result, deadline, exists = m
-        is_expired = now > deadline
-        
-        categories[cat] = categories.get(cat, 0) + 1
-        
-        if not resolved:
-            if not is_expired:
-                active_count += 1
-                if active_count <= 5: # Show first 5 active
-                    print(f"Active #{i}: {desc} ({cat})")
+    # Scan from newest to oldest for better relevance
+    start_id = max(1, count - 100) # Only check last 100 for speed
+    for i in range(count, start_id - 1, -1):
+        try:
+            m = contract.functions.markets(i).call()
+            # The structure is: desc, cat, tYes, tNo, resolved, result, deadline, exists
+            desc, cat, tYes, tNo, resolved, result, deadline, exists = m
+            
+            if not exists: continue
+            
+            is_expired = now > deadline
+            categories[cat] = categories.get(cat, 0) + 1
+            
+            if not resolved:
+                if not is_expired:
+                    active_count += 1
+                    if active_count <= 20: 
+                        print(f"Active #{i}: {desc} ({cat}) - Deadline: {datetime.fromtimestamp(deadline)}")
+                else:
+                    pending_resolution += 1
+                    print(f"Expired/Pending #{i}: {desc} ({cat}) - Ended at: {datetime.fromtimestamp(deadline)}")
             else:
-                pending_resolution += 1
-                if pending_resolution <= 5:
-                    print(f"Expired/Pending #{i}: {desc} ({cat})")
+                pass # Already resolved
+        except Exception as e:
+            print(f"Error reading market #{i}: {e}")
             
     print(f"\nStats:")
-    print(f"- Active (Betting open): {active_count}")
-    print(f"- Pending Resolution (Event ended): {pending_resolution}")
+    print(f"- Total scanned (last 100): {count - start_id + 1}")
+    print(f"- Unresolved & Active: {active_count}")
+    print(f"- Unresolved & Expired (Awaiting Agent): {pending_resolution}")
     print(f"- Categories: {categories}")
 
 if __name__ == "__main__":

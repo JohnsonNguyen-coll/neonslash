@@ -20,7 +20,6 @@ PRIVATE_KEY = os.getenv('PRIVATE_KEY', '').replace('"', '').replace("'", "").str
 
 # Optional: Add API keys for better data sources
 FOOTBALL_API_KEY = os.getenv('FOOTBALL_API_KEY', '3')  # TheSportsDB test key
-ALPHA_VANTAGE_KEY = os.getenv('ALPHA_VANTAGE_KEY', '')  # For stocks (optional)
 
 ABI = [
     {"inputs":[],"name":"marketCount","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
@@ -32,8 +31,10 @@ ABI = [
 
 class RealOracleAgent:
     """
-    Production Oracle Agent - Real data only, no hardcoding
-    Supports: Football (API-Football), Crypto (yfinance), Stocks (yfinance)
+    Production Oracle Agent - Fully Automated
+    - Tự động phát hiện thông tin mới (football, crypto)
+    - Tự động tạo markets
+    - Tự động resolve bằng API thật
     """
     
     def __init__(self):
@@ -51,18 +52,13 @@ class RealOracleAgent:
     
     def fetch_live_football_fixtures(self, max_fixtures=5):
         """
-        Fetch real upcoming football matches from API-Football (free tier)
-        Returns list of fixtures happening in next 24 hours
+        Fetch real upcoming football matches from TheSportsDB API
+        Returns list of fixtures happening in next 7 days
         """
         try:
-            # Using API-Football.com - Free tier allows 100 requests/day
-            # Get fixtures for today and tomorrow
-            today = datetime.now()
-            
             fixtures = []
             
-            # Alternative: TheSportsDB (completely free but less reliable)
-            # For major leagues: EPL, La Liga, Serie A, Bundesliga, Ligue 1
+            # Major leagues to monitor
             leagues = {
                 'English Premier League': '4328',
                 'Spanish La Liga': '4335',
@@ -80,40 +76,56 @@ class RealOracleAgent:
                     
                     if data and data.get('events'):
                         print(f"   ✅ Found {len(data['events'])} events for {league_name}")
-                        for event in data['events'][:2]:
-                            event_date = datetime.strptime(event['dateEvent'], '%Y-%m-%d')
-                            if (event_date - today).days <= 7 and (event_date - today).days >= 0:
-                                fixtures.append({
-                                    'home': event['strHomeTeam'],
-                                    'away': event['strAwayTeam'],
-                                    'league': league_name,
-                                    'date': event['dateEvent'],
-                                    'time': event.get('strTime', '00:00:00'),
-                                    'event_id': event['idEvent']
-                                })
-                    else:
-                        print(f"   ℹ️ No upcoming events for {league_name}")
+                        for event in data['events'][:2]:  # Top 2 per league
+                            try:
+                                event_date = datetime.strptime(event['dateEvent'], '%Y-%m-%d')
+                                days_until = (event_date - datetime.now()).days
+                                
+                                # Only matches within next 7 days
+                                if 0 <= days_until <= 7:
+                                    fixtures.append({
+                                        'home': event['strHomeTeam'],
+                                        'away': event['strAwayTeam'],
+                                        'league': league_name,
+                                        'date': event['dateEvent'],
+                                        'time': event.get('strTime', '00:00:00'),
+                                        'event_id': event['idEvent']
+                                    })
+                            except Exception as e:
+                                print(f"   ⚠️ Error parsing event: {e}")
+                                continue
                     
-                    time.sleep(1) # More generous rate limit
+                    time.sleep(1)  # Rate limiting
                     
                 except Exception as e:
                     print(f"   ❌ Error fetching {league_name}: {e}")
             
             if not fixtures:
-                print("   ⚠️ No fixtures found in next 7 days across all monitored leagues.")
+                print("   ℹ️ No upcoming fixtures found in next 7 days")
+            
             return fixtures[:max_fixtures]
             
         except Exception as e:
             print(f"❌ Football API Error: {e}")
             return []
     
-    def resolve_football_match(self, home_team, away_team, event_id=None):
+    def resolve_football_match(self, home_team, away_team, target_team, event_id=None):
         """
         Resolve football match using real API data
-        Returns: True if home team won, False otherwise, None if match not finished
+        Returns: True if target_team won, False if target_team lost/drew, None if not finished
         """
         try:
-            # Method 1: Search by event ID if available
+            print(f"   🔍 Checking match: {home_team} vs {away_team} (Target: {target_team})")
+            
+            # Helper to check if target won
+            def check_win(h_score, a_score, h_name, a_name):
+                if target_team.lower() in h_name.lower():
+                    return h_score > a_score
+                elif target_team.lower() in a_name.lower():
+                    return a_score > h_score
+                return False
+
+            # Method 1: Search by event ID
             if event_id:
                 url = f"https://www.thesportsdb.com/api/v1/json/{FOOTBALL_API_KEY}/lookupevent.php?id={event_id}"
                 r = requests.get(url, timeout=10)
@@ -122,10 +134,10 @@ class RealOracleAgent:
                 if data and data.get('events'):
                     event = data['events'][0]
                     if event.get('strStatus') == 'Match Finished':
-                        home_score = int(event.get('intHomeScore', 0))
-                        away_score = int(event.get('intAwayScore', 0))
-                        print(f"⚽ Match Result: {event['strHomeTeam']} {home_score}-{away_score} {event['strAwayTeam']}")
-                        return home_score > away_score
+                        h_s = int(event.get('intHomeScore', 0))
+                        a_s = int(event.get('intAwayScore', 0))
+                        print(f"   ⚽ Result: {event['strHomeTeam']} {h_s}-{a_s} {event['strAwayTeam']}")
+                        return check_win(h_s, a_s, event['strHomeTeam'], event['strAwayTeam'])
             
             # Method 2: Search by team names
             home_normalized = home_team.replace(' ', '_')
@@ -136,15 +148,14 @@ class RealOracleAgent:
             data = r.json()
             
             if data and data.get('event'):
-                # Find most recent finished match
                 for event in data['event']:
                     if event.get('strStatus') == 'Match Finished':
-                        home_score = int(event.get('intHomeScore', 0))
-                        away_score = int(event.get('intAwayScore', 0))
-                        print(f"⚽ Match Result: {event['strHomeTeam']} {home_score}-{away_score} {event['strAwayTeam']}")
-                        return home_score > away_score
+                        h_s = int(event.get('intHomeScore', 0))
+                        a_s = int(event.get('intAwayScore', 0))
+                        print(f"   ⚽ Result: {event['strHomeTeam']} {h_s}-{a_s} {event['strAwayTeam']}")
+                        return check_win(h_s, a_s, event['strHomeTeam'], event['strAwayTeam'])
             
-            # Try reverse search
+            # Method 3: Reverse search
             url = f"https://www.thesportsdb.com/api/v1/json/{FOOTBALL_API_KEY}/searchevents.php?e={away_normalized}_vs_{home_normalized}"
             r = requests.get(url, timeout=10)
             data = r.json()
@@ -152,136 +163,85 @@ class RealOracleAgent:
             if data and data.get('event'):
                 for event in data['event']:
                     if event.get('strStatus') == 'Match Finished':
-                        home_score = int(event.get('intAwayScore', 0))  # Reversed
-                        away_score = int(event.get('intHomeScore', 0))
-                        print(f"⚽ Match Result: {event['strAwayTeam']} {home_score}-{away_score} {event['strHomeTeam']}")
-                        return home_score > away_score
+                        # Note: In reverse search, the API might return teams in original or swapped order
+                        # We use the names from the API to be safe
+                        h_s = int(event.get('intHomeScore', 0))
+                        a_s = int(event.get('intAwayScore', 0))
+                        print(f"   ⚽ Result: {event['strHomeTeam']} {h_s}-{a_s} {event['strAwayTeam']}")
+                        return check_win(h_s, a_s, event['strHomeTeam'], event['strAwayTeam'])
             
-            print(f"⏳ Match not finished yet: {home_team} vs {away_team}")
+            print(f"   ⏳ Match not finished yet")
             return None
             
         except Exception as e:
-            print(f"❌ Football Resolution Error: {e}")
+            print(f"   ❌ Football Resolution Error: {e}")
             return None
-
-    def resolve_legacy_football(self, description):
-        """Specifically handle the 'Match Day' format for older markets"""
-        try:
-            import re
-            match = re.search(r'Match Day: (.+) vs (.+)\. Will (.+) win\?', description)
-            if match:
-                home, away, target = match.group(1), match.group(2), match.group(3)
-                print(f"🕵️ Legacy Football match found: {home} vs {away}. Checking API...")
-                return self.resolve_football_match(home, away)
-            return None
-        except: return None
     
-    # ==================== CRYPTO ORACLE (Binance API) ====================
+    # ==================== CRYPTO ORACLE ====================
     
     def get_crypto_price(self, symbol):
-        """Get real-time crypto price from Binance"""
-        try:
-            ticker = f"{symbol}USDT"
-            url = f"https://api.binance.com/api/v3/ticker/price?symbol={ticker}"
-            r = requests.get(url, timeout=10)
-            data = r.json()
-            if 'price' in data:
-                return {
-                    'symbol': symbol,
-                    'current_price': float(data['price'])
-                }
-            return None
-        except Exception as e:
-            print(f"❌ Binance Price Error for {symbol}: {e}")
-            return None
+        """Get real-time crypto price from Binance (with retry)"""
+        for attempt in range(3):  # 3 retries
+            try:
+                ticker = f"{symbol}USDT"
+                url = f"https://api.binance.com/api/v3/ticker/price?symbol={ticker}"
+                r = requests.get(url, timeout=10)
+                data = r.json()
+                
+                if 'price' in data:
+                    return {
+                        'symbol': symbol,
+                        'current_price': float(data['price'])
+                    }
+                
+            except Exception as e:
+                if attempt == 2:  # Last attempt
+                    print(f"❌ Binance API Error for {symbol} after 3 attempts: {e}")
+                else:
+                    time.sleep(2)  # Wait before retry
+        
+        return None
     
     def resolve_crypto_target(self, symbol, target_price, start_timestamp, end_timestamp):
         """
-        Check if crypto hit target price using Binance K-line data
+        Check if crypto hit target price using Binance historical data
+        Returns: True if hit, False if not, None if data unavailable
         """
         try:
             ticker = f"{symbol}USDT"
-            # Binance klines API (1h intervals)
+            
+            # Binance klines API (1h candlesticks)
             url = f"https://api.binance.com/api/v3/klines?symbol={ticker}&interval=1h&startTime={int(start_timestamp * 1000)}&endTime={int(end_timestamp * 1000)}"
             r = requests.get(url, timeout=10)
             data = r.json()
             
-            if not isinstance(data, list):
-                print(f"❌ Invalid data from Binance for {ticker}")
+            if not isinstance(data, list) or len(data) == 0:
+                print(f"   ❌ No data from Binance for {ticker}")
                 return None
             
-            max_high = 0.0
-            for k in data:
-                high = float(k[2]) # Index 2 is High price
-                if high > max_high:
-                    max_high = high
+            # Find max high in the timeframe
+            max_high = max(float(candle[2]) for candle in data)  # Index 2 = High price
             
             result = max_high >= target_price
-            print(f"📊 {symbol} Target: ${target_price} | Actual High: ${max_high:.2f} | Result: {result}")
+            print(f"   📊 {symbol} Target: ${target_price:.2f} | Actual High: ${max_high:.2f} | Hit: {result}")
             return result
             
         except Exception as e:
-            print(f"❌ Crypto Resolution Error (Binance): {e}")
+            print(f"   ❌ Crypto Resolution Error: {e}")
             return None
     
-    # ==================== STOCK ORACLE (Finnhub API) ====================
-    
-    def get_stock_price(self, ticker_symbol):
-        """Get real-time stock price from Finnhub"""
-        try:
-            url = f"https://finnhub.io/api/v1/quote?symbol={ticker_symbol}&token=sandbox_c8v2pka201q9864234v0"
-            r = requests.get(url, timeout=10)
-            data = r.json()
-            if 'c' in data and data['c'] > 0:
-                return {
-                    'symbol': ticker_symbol,
-                    'current_price': float(data['c'])
-                }
-            return None
-        except Exception as e:
-            print(f"❌ Finnhub Stock Price Error for {ticker_symbol}: {e}")
-            return None
-    
-    def resolve_stock_movement(self, ticker_symbol, threshold_pct, start_timestamp, end_timestamp):
-        """
-        Check if stock moved using Finnhub candles
-        """
-        try:
-            # Finnhub candles: resolution '60' (1 hour)
-            url = f"https://finnhub.io/api/v1/stock/candle?symbol={ticker_symbol}&resolution=60&from={int(start_timestamp)}&to={int(end_timestamp)}&token=sandbox_c8v2pka201q9864234v0"
-            r = requests.get(url, timeout=10)
-            data = r.json()
-            
-            if data.get('s') != 'ok':
-                return None
-            
-            highs = data.get('h', [])
-            closes = data.get('c', [])
-            
-            if not highs or not closes:
-                return None
-                
-            start_price = closes[0]
-            max_high = max(highs)
-            actual_change = ((max_high - start_price) / start_price) * 100
-            
-            result = actual_change >= threshold_pct
-            print(f"📈 {ticker_symbol} Target: +{threshold_pct}% | Actual: +{actual_change:.2f}% | Result: {result}")
-            return result
-            
-        except Exception as e:
-            print(f"❌ Stock Resolution Error (Finnhub): {e}")
-            return None
-    
-    # ==================== MARKET CREATION ====================
+    # ==================== MARKET MANAGEMENT ====================
     
     def get_active_markets(self):
-        """Get all unresolved markets to avoid duplicates"""
+        """Get all unresolved markets"""
         try:
             count = self.contract.functions.marketCount().call()
             active = []
             
-            for i in range(max(1, count - 50), count + 1):
+            # Check last 100 markets (or all if less)
+            start = max(1, count - 99)
+            
+            for i in range(start, count + 1):
                 try:
                     m = self.contract.functions.markets(i).call()
                     if not m[4]:  # Not resolved
@@ -301,63 +261,90 @@ class RealOracleAgent:
             return []
     
     def create_football_markets(self):
-        """Create markets for real upcoming matches (Increased to 5)"""
+        """Create markets for real upcoming matches"""
         fixtures = self.fetch_live_football_fixtures(max_fixtures=5)
         active = self.get_active_markets()
         active_descs = {m['description'] for m in active}
         
+        created = 0
         for fixture in fixtures:
             desc = f"Football: {fixture['home']} vs {fixture['away']} ({fixture['league']}) - Will {fixture['home']} win?"
             
-            if desc not in active_descs:
-                # Calculate deadline: 2 hours after match time
-                match_date = datetime.strptime(f"{fixture['date']} {fixture['time']}", '%Y-%m-%d %H:%M:%S')
-                duration = int((match_date + timedelta(hours=2) - datetime.now()).total_seconds())
+            # Skip if already exists
+            if desc in active_descs:
+                print(f"⏭️  Skipping duplicate: {fixture['home']} vs {fixture['away']}")
+                continue
+            
+            try:
+                # Use UTC for duration calculation to match API data
+                now_utc = datetime.now(pytz.UTC)
+                match_datetime = pytz.UTC.localize(datetime.strptime(
+                    f"{fixture['date']} {fixture['time']}", 
+                    '%Y-%m-%d %H:%M:%S'
+                ))
+                duration = int((match_datetime + timedelta(hours=3) - now_utc).total_seconds())
                 
                 if duration > 0:
                     self.deploy_market(desc, "Football", duration)
                     print(f"⚽ Created: {fixture['home']} vs {fixture['away']}")
+                    created += 1
+                    time.sleep(2)  # Prevent nonce collision
                 else:
-                    print(f"⏭️ Match already started: {fixture['home']} vs {fixture['away']}")
+                    print(f"⏭️  Match already started: {fixture['home']} vs {fixture['away']}")
+                    
+            except Exception as e:
+                print(f"❌ Error creating football market: {e}")
+        
+        return created
     
     def create_crypto_markets(self):
-        """Create markets for multiple crypto assets"""
+        """Create markets for crypto price targets"""
         active = self.get_active_markets()
-        active_descs = {m['description'] for m in active}
         
-        # Monitor multiple assets
+        # FIX: Check by category AND symbol to prevent duplicates
+        active_crypto = [m for m in active if m['category'] == 'Crypto']
+        
         assets = [
-            ('BTC', 'Bitcoin', 0.012),   # +1.2% target
-            ('ETH', 'Ethereum', 0.015),  # +1.5% target
-            ('SOL', 'Solana', 0.020)     # +2.0% target
+            ('BTC', 'Bitcoin', 0.015),    # +1.5% target
+            ('ETH', 'Ethereum', 0.020),   # +2.0% target
+            ('SOL', 'Solana', 0.025)      # +2.5% target
         ]
         
+        created = 0
         for symbol, name, volatility in assets:
             try:
-                # FIX: Check if ANY active market already exists for this symbol (e.g. "BTC")
-                already_has_asset = any(f"({symbol})" in m['description'] for m in active)
+                # Check if this symbol already has an active market
+                has_active = any(f"({symbol})" in m['description'] for m in active_crypto)
                 
-                if already_has_asset:
-                    print(f"⏭️ Skipping {symbol}: Existing market is still active.")
+                if has_active:
+                    print(f"⏭️  Skipping {symbol}: Active market exists")
                     continue
-
+                
+                # Get current price from Binance
                 data = self.get_crypto_price(symbol)
-                if data:
-                    current_price = data['current_price']
-                    target = round(current_price * (1 + volatility), 2 if symbol != 'SOL' else 3)
-                    
-                    desc = f"Crypto: Will {name} ({symbol}) reach ${target} in next 2 hours? (Current: ${current_price})"
-                    
-                    self.deploy_market(desc, "Crypto", 7200)
-                    print(f"₿ Created {symbol} market: ${target} target")
-                    time.sleep(1) 
+                if not data:
+                    print(f"⚠️  Could not fetch price for {symbol}")
+                    continue
+                
+                current_price = data['current_price']
+                target = round(current_price * (1 + volatility), 2)
+                
+                desc = f"Crypto: Will {name} ({symbol}) reach ${target} in next 2 hours? (Current: ${current_price})"
+                
+                self.deploy_market(desc, "Crypto", 7200)  # 2 hours
+                print(f"₿ Created {symbol} market: ${current_price} → ${target}")
+                created += 1
+                time.sleep(2)
+                
             except Exception as e:
-                print(f"Error creating {symbol} market: {e}")
+                print(f"❌ Error creating {symbol} market: {e}")
+        
+        return created
     
     def deploy_market(self, description, category, duration):
         """Deploy a single market to blockchain"""
         try:
-            nonce = self.w3.eth.get_transaction_count(self.account.address)
+            nonce = self.w3.eth.get_transaction_count(self.account.address, 'pending')
             
             tx = self.contract.functions.createMarket(
                 description, 
@@ -367,91 +354,81 @@ class RealOracleAgent:
                 'from': self.account.address,
                 'nonce': nonce,
                 'gas': 1000000,
-                'gasPrice': self.w3.eth.gas_price,
-                'chainId': 5042002
+                'gasPrice': int(self.w3.eth.gas_price * 1.2),
+                'chainId': self.w3.eth.chain_id
             })
             
             signed = self.w3.eth.account.sign_transaction(tx, PRIVATE_KEY)
             raw = getattr(signed, 'raw_transaction', getattr(signed, 'rawTransaction', None))
             tx_hash = self.w3.eth.send_raw_transaction(raw)
             
-            print(f"✅ Market deployed: {description[:60]}...")
-            time.sleep(2)
+            print(f"   ✅ TX: {tx_hash.hex()}")
             
         except Exception as e:
-            print(f"❌ Deploy error: {e}")
+            print(f"   ❌ Deploy error: {e}")
     
     # ==================== MARKET RESOLUTION ====================
     
     def parse_market_details(self, description, category):
         """
-        Ultra-flexible parser to handle various market formats (including legacy ones)
+        Parse market description to extract resolution parameters
+        Supports multiple formats including legacy
         """
+        import re
+        
         desc_upper = description.upper()
         
-        # 1. FOOTBALL DETECTION
+        # 1. FOOTBALL
         if category == "Football" or " VS " in desc_upper:
-            import re
-            # Try to find teams: "Team A vs Team B"
-            match = re.search(r'([a-zA-Z\s]+) VS ([a-zA-Z\s\(\)]+)', description, re.IGNORECASE)
+            # Try modern format: "Football: Liverpool vs Man City (...) - Will Liverpool win?"
+            match = re.search(r'(?:Football:|Match Day:)?\s*(.+?)\s+vs\s+(.+?)(?:\s+\((.+?)\))?\s*[-.]?\s*Will\s+(.+?)\s+win\?', description, re.IGNORECASE)
+            
             if match:
-                home = match.group(1).strip().split('(')[0].strip()
-                away = match.group(2).strip().split('.')[0].split('(')[0].strip()
-                # Clean up "Match Day: " or "Football: " prefixes
-                home = home.replace("Match Day: ", "").replace("Football: ", "")
-                
-                # Determine target team (usually the one mentioned at the end or the home team)
-                target_team = home
-                if "WILL " in desc_upper and " WIN?" in desc_upper:
-                    target_match = re.search(r'WILL ([a-zA-Z\s]+) WIN\?', description, re.IGNORECASE)
-                    if target_match:
-                        target_team = target_match.group(1).strip()
+                home = match.group(1).strip()
+                away = match.group(2).strip()
+                target = match.group(4).strip()
                 
                 return {
                     'type': 'football',
                     'home': home,
                     'away': away,
-                    'target_team': target_team
+                    'target_team': target
                 }
-
-        # 2. CRYPTO DETECTION
-        if category == "Crypto" or any(x in desc_upper for x in ["BITCOIN", "(BTC)", "ETHEREUM", "(ETH)", "SOLANA"]):
-            import re
-            # Extract symbol: e.g. (BTC) or Bitcoin
+        
+        # 2. CRYPTO
+        if category == "Crypto" or any(x in desc_upper for x in ["BITCOIN", "BTC", "ETHEREUM", "ETH", "SOLANA", "SOL"]):
+            # Extract symbol
             symbol = "BTC"
-            if "ETH" in desc_upper: symbol = "ETH"
-            elif "SOL" in desc_upper: symbol = "SOL"
+            if "ETH" in desc_upper or "ETHEREUM" in desc_upper:
+                symbol = "ETH"
+            elif "SOL" in desc_upper or "SOLANA" in desc_upper:
+                symbol = "SOL"
             
-            # Extract target price: e.g. $105000
-            price_match = re.search(r'\$(\d+\.?\d*)', description)
+            # Extract target price
+            price_match = re.search(r'\$(\d+(?:\.\d+)?)', description)
             if price_match:
                 return {
                     'type': 'crypto',
                     'symbol': symbol,
                     'target_price': float(price_match.group(1))
                 }
-
-        # 3. STOCK/NEWS DETECTION
-        if category == "Stocks" or "SURGE" in desc_upper:
-            import re
-            # Look for tickers like TSLA, AAPL, AMZN
-            ticker_match = re.search(r'\b([A-Z]{3,5})\b', description)
-            symbol = ticker_match.group(1) if ticker_match else "BTC-USD"
-            
-            # Look for percentage
-            pct_match = re.search(r'(\d+)%', description)
-            threshold = float(pct_match.group(1)) if pct_match else 2.0
+        
+        # 3. STOCKS/NEWS
+        if category == "Stocks" or "SURGE" in desc_upper or "%" in description:
+            # Try to extract ticker and percentage
+            ticker_match = re.search(r'\b([A-Z]{2,5})\b', description)
+            pct_match = re.search(r'(\d+(?:\.\d+)?)%', description)
             
             return {
                 'type': 'stock',
-                'symbol': symbol,
-                'threshold': threshold
+                'symbol': ticker_match.group(1) if ticker_match else None,
+                'threshold': float(pct_match.group(1)) if pct_match else 2.0
             }
         
         return None
     
     def resolve_expired_markets(self):
-        """Scan and resolve all expired markets using real oracles"""
+        """Scan and resolve expired markets using real oracles"""
         try:
             count = self.contract.functions.marketCount().call()
             now = int(time.time())
@@ -460,7 +437,8 @@ class RealOracleAgent:
             
             resolved_count = 0
             
-            for market_id in range(1, count + 1):
+            # Scan backwards from newest to oldest
+            for market_id in range(count, max(0, count - 50), -1):  # Last 50 markets
                 try:
                     m = self.contract.functions.markets(market_id).call()
                     
@@ -468,60 +446,58 @@ class RealOracleAgent:
                     category = m[1]
                     resolved = m[4]
                     deadline = m[6]
-                    desc_upper = description.upper()
                     
-                    # Resolution Logic: 
-                    # We resolve if:
-                    # 1. It is expired (now > deadline) -> Must resolve.
-                    # 2. Or if we found a DEFINITIVE real-world result (Early Resolution)
+                    # Skip if already resolved
+                    if resolved:
+                        continue
                     
-                    if not resolved:
-                        # 1. Parse details first
-                        details = self.parse_market_details(description, category)
-                        if not details:
-                            print(f"   ⚠️ Cannot parse market format for #{market_id}")
-                            continue
-
-                        result = None
-                        # Use the PARSED type instead of the CONTRACT category for better accuracy
-                        market_type = details.get('type')
-                        
-                        if market_type == 'football':
-                            result = self.resolve_football_match(details['home'], details['away'])
-                        
-                        elif market_type == 'crypto':
-                            # For crypto/stocks, resolve after deadline or if we have definitive data
-                            if now > deadline or "FORCE" in desc_upper:
-                                start_time = deadline - 7200
-                                result = self.resolve_crypto_target(
-                                    details.get('symbol', 'BTC'), 
-                                    details.get('target_price', 0), 
-                                    start_time, 
-                                    deadline
-                                )
-                        
-                        elif market_type == 'stock':
-                            if now > deadline or "FORCE" in desc_upper:
-                                start_time = deadline - 3600
-                                result = self.resolve_stock_movement(
-                                    details.get('symbol', 'TSLA'), 
-                                    details.get('threshold', 2.0), 
-                                    start_time, 
-                                    deadline
-                                )
-                        
-                        # Trigger resolution
-                        if result is not None:
-                            print(f"\n🎯 Resolving Market #{market_id} ({market_type.upper()})")
-                            print(f"   Description: {description}")
-                            self.submit_resolution(market_id, result, description)
+                    # Check if expired
+                    is_expired = now > deadline
+                    
+                    # Parse market details
+                    details = self.parse_market_details(description, category)
+                    if not details:
+                        continue
+                    
+                    result = None
+                    market_type = details['type']
+                    
+                    # Try to resolve based on type
+                    if market_type == 'football':
+                        print(f"\n🎯 Market #{market_id} (Football)")
+                        result = self.resolve_football_match(
+                            details['home'],
+                            details['away'],
+                            details['target_team']
+                        )
+                    
+                    elif market_type == 'crypto' and is_expired:
+                        print(f"\n🎯 Market #{market_id} (Crypto)")
+                        start_time = deadline - 7200  # 2 hour window
+                        result = self.resolve_crypto_target(
+                            details['symbol'],
+                            details['target_price'],
+                            start_time,
+                            deadline
+                        )
+                    
+                    elif market_type == 'stock' and is_expired:
+                        print(f"\n🎯 Market #{market_id} (Stock)")
+                        # Stocks not implemented yet
+                        print(f"   ⚠️ Stock resolution not yet implemented")
+                        continue
+                    
+                    # Submit resolution if we have a result
+                    if result is not None:
+                        success = self.submit_resolution(market_id, result, description)
+                        if success:
                             resolved_count += 1
-                            time.sleep(3)
-                        elif now > deadline:
-                            print(f"   ⏳ Market #{market_id} ({market_type}) expired but no data yet. Retrying...")
+                            time.sleep(3)  # Prevent RPC overload
+                    elif is_expired:
+                        print(f"   ⏳ Market expired but no result available yet")
                     
                 except Exception as e:
-                    print(f"   ❌ Error resolving market #{market_id}: {e}")
+                    print(f"   ❌ Error on market #{market_id}: {e}")
                     continue
             
             print(f"\n✅ Resolved {resolved_count} markets this cycle\n")
@@ -530,9 +506,9 @@ class RealOracleAgent:
             print(f"❌ Resolution scan error: {e}")
     
     def submit_resolution(self, market_id, result, description):
-        """Submit resolution transaction to blockchain"""
+        """Submit resolution transaction"""
         try:
-            nonce = self.w3.eth.get_transaction_count(self.account.address)
+            nonce = self.w3.eth.get_transaction_count(self.account.address, 'pending')
             
             tx = self.contract.functions.resolveMarket(
                 market_id,
@@ -541,8 +517,8 @@ class RealOracleAgent:
                 'from': self.account.address,
                 'nonce': nonce,
                 'gas': 800000,
-                'gasPrice': self.w3.eth.gas_price,
-                'chainId': 5042002
+                'gasPrice': int(self.w3.eth.gas_price * 1.2),
+                'chainId': self.w3.eth.chain_id
             })
             
             signed = self.w3.eth.account.sign_transaction(tx, PRIVATE_KEY)
@@ -550,18 +526,20 @@ class RealOracleAgent:
             tx_hash = self.w3.eth.send_raw_transaction(raw)
             
             result_text = "✅ YES" if result else "❌ NO"
-            print(f"   📝 Resolution submitted: {result_text}")
+            print(f"   📝 Resolution: {result_text}")
             print(f"   🔗 TX: {tx_hash.hex()}")
+            return True
             
         except Exception as e:
-            print(f"   ❌ Resolution TX error: {e}")
+            print(f"   ❌ TX Error: {e}")
+            return False
     
     # ==================== MAIN LOOP ====================
     
     def run(self):
-        """Main agent loop - create and resolve markets"""
+        """Main agent loop"""
         print("\n" + "="*60)
-        print("🔮 REAL ORACLE AGENT - PRODUCTION MODE")
+        print("🔮 REAL ORACLE AGENT - FULLY AUTOMATED")
         print("="*60)
         
         cycle = 0
@@ -570,22 +548,24 @@ class RealOracleAgent:
             try:
                 cycle += 1
                 print(f"\n{'='*60}")
-                print(f"🔄 Cycle #{cycle} - {datetime.now().strftime('%H:%M:%S')}")
+                print(f"🔄 Cycle #{cycle} - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
                 print(f"{'='*60}")
                 
-                # 1. Resolve expired/past markets FIRST (Priority)
-                print("\n⚖️ STEP 1: RESOLVING EXPIRED/PAST MARKETS...")
+                # 1. Resolve expired markets FIRST (Priority)
+                print("\n⚖️  RESOLVING MARKETS...")
                 self.resolve_expired_markets()
                 
-                # 2. Create new markets SECOND (Every cycle for testing/visibility)
-                if True: # Force creation every cycle during setup
-                    print("\n📝 STEP 2: CREATING NEW MARKETS...")
-                    self.create_football_markets()
-                    self.create_crypto_markets()
+                # 2. Create new markets (every cycle)
+                print("\n📝 CREATING MARKETS...")
+                football_created = self.create_football_markets()
+                crypto_created = self.create_crypto_markets()
+                
+                total_created = football_created + crypto_created
+                print(f"\n📊 Summary: Created {total_created} new markets")
                 
                 # 3. Wait before next cycle
                 wait_minutes = 15
-                print(f"\n💤 Cycle complete. Next check in {wait_minutes} minutes...")
+                print(f"\n💤 Next cycle in {wait_minutes} minutes...")
                 time.sleep(wait_minutes * 60)
                 
             except KeyboardInterrupt:
@@ -597,7 +577,7 @@ class RealOracleAgent:
                 time.sleep(300)
 
 
-# ==================== WEB SERVER FOR HEALTH CHECKS ====================
+# ==================== WEB SERVER ====================
 
 import threading
 from flask import Flask, jsonify
@@ -618,9 +598,11 @@ def status():
     try:
         if agent_instance:
             count = agent_instance.contract.functions.marketCount().call()
+            active = agent_instance.get_active_markets()
             return jsonify({
                 'status': 'active',
                 'total_markets': count,
+                'active_markets': len(active),
                 'agent_address': agent_instance.account.address
             })
     except:
@@ -637,7 +619,7 @@ if __name__ == "__main__":
     agent_thread = threading.Thread(target=run_agent, daemon=True)
     agent_thread.start()
     
-    # Start Flask server for health checks (required for Render)
+    # Start Flask server
     port = int(os.environ.get("PORT", 8080))
-    print(f"\n🌐 Health check server starting on port {port}")
+    print(f"\n🌐 Health check server on port {port}")
     app.run(host='0.0.0.0', port=port)
