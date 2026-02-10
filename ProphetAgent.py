@@ -76,24 +76,26 @@ class RealOracleAgent:
                     
                     if data and data.get('events'):
                         print(f"   ✅ Found {len(data['events'])} events for {league_name}")
-                        for event in data['events'][:2]:  # Top 2 per league
-                            try:
-                                event_date = datetime.strptime(event['dateEvent'], '%Y-%m-%d')
-                                days_until = (event_date - datetime.now()).days
-                                
-                                # Only matches within next 7 days
-                                if 0 <= days_until <= 7:
-                                    fixtures.append({
-                                        'home': event['strHomeTeam'],
-                                        'away': event['strAwayTeam'],
-                                        'league': league_name,
-                                        'date': event['dateEvent'],
-                                        'time': event.get('strTime', '00:00:00'),
-                                        'event_id': event['idEvent']
-                                    })
-                            except Exception as e:
-                                print(f"   ⚠️ Error parsing event: {e}")
-                                continue
+                    for event in data['events'][:2]:  # Top 2 per league
+                        try:
+                            # Use date objects for cleaner comparison
+                            event_date = datetime.strptime(event['dateEvent'], '%Y-%m-%d').date()
+                            today = datetime.now().date()
+                            days_until = (event_date - today).days
+                            
+                            # Matches from today up to 7 days in the future
+                            if 0 <= days_until <= 7:
+                                fixtures.append({
+                                    'home': event['strHomeTeam'],
+                                    'away': event['strAwayTeam'],
+                                    'league': league_name,
+                                    'date': event['dateEvent'],
+                                    'time': event.get('strTime', '00:00:00'),
+                                    'event_id': event['idEvent']
+                                })
+                        except Exception as e:
+                            print(f"   ⚠️ Error parsing event: {e}")
+                            continue
                     
                     time.sleep(1)  # Rate limiting
                     
@@ -611,15 +613,25 @@ def status():
 
 def run_agent():
     global agent_instance
-    agent_instance = RealOracleAgent()
-    agent_instance.run()
+    try:
+        print("🚀 Background Agent Thread STARTING...", flush=True)
+        agent_instance = RealOracleAgent()
+        agent_instance.run()
+    except Exception as e:
+        print(f"❌ CRITICAL ERROR IN AGENT THREAD: {e}", flush=True)
+        import traceback
+        traceback.print_exc()
 
 if __name__ == "__main__":
+    # Ensure stdout is flushed immediately for Render logs
+    import sys
+    print("🎬 Starting NeonSlash Prophet System...", flush=True)
+
     # Start agent in background thread
     agent_thread = threading.Thread(target=run_agent, daemon=True)
     agent_thread.start()
     
     # Start Flask server
     port = int(os.environ.get("PORT", 8080))
-    print(f"\n🌐 Health check server on port {port}")
+    print(f"\n🌐 Health check server on port {port}", flush=True)
     app.run(host='0.0.0.0', port=port)
