@@ -18,6 +18,12 @@ RPC_URL = os.getenv('VITE_ARC_RPC_URL', 'https://rpc.testnet.arc.network')
 CONTRACT_ADDRESS = os.getenv('VITE_CONTRACT_ADDRESS', '').replace('"', '').replace("'", "").strip()
 PRIVATE_KEY = os.getenv('PRIVATE_KEY', '').replace('"', '').replace("'", "").strip()
 
+# Headers to prevent bot detection
+HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+    'Accept': 'application/json'
+}
+
 # Optional: Add API keys for better data sources
 FOOTBALL_API_KEY = os.getenv('FOOTBALL_API_KEY', '3')  # TheSportsDB test key
 
@@ -44,6 +50,11 @@ class RealOracleAgent:
             address=self.w3.to_checksum_address(CONTRACT_ADDRESS), 
             abi=ABI
         )
+        
+        # Session for requests with headers
+        self.session = requests.Session()
+        self.session.headers.update(HEADERS)
+        
         print(f"🔮 Real Oracle Agent ACTIVE")
         print(f"📍 Agent Address: {self.account.address}")
         print(f"📍 Contract: {CONTRACT_ADDRESS}")
@@ -72,7 +83,12 @@ class RealOracleAgent:
             for league_name, league_id in leagues.items():
                 try:
                     url = f"https://www.thesportsdb.com/api/v1/json/{FOOTBALL_API_KEY}/eventsnextleague.php?id={league_id}"
-                    r = requests.get(url, timeout=10)
+                    r = self.session.get(url, timeout=10)
+                    
+                    if r.status_code != 200:
+                        print(f"   ⚠️ TheSportsDB Blocked {league_name} (Status {r.status_code})")
+                        continue
+                        
                     data = r.json()
                     
                     if data and data.get('events'):
@@ -137,31 +153,31 @@ class RealOracleAgent:
             # Method 1: Use Event ID
             if event_id:
                 url = f"https://www.thesportsdb.com/api/v1/json/{FOOTBALL_API_KEY}/lookupevent.php?id={event_id}"
-                r = requests.get(url, timeout=10)
-                data = r.json()
-                
-                if data and data.get('events'):
-                    event = data['events'][0]
-                    if event.get('strStatus') == 'Match Finished':
-                        h_s = int(event.get('intHomeScore', 0))
-                        a_s = int(event.get('intAwayScore', 0))
-                        print(f"   ⚽ Result: {event['strHomeTeam']} {h_s}-{a_s} {event['strAwayTeam']}")
-                        return check_win(h_s, a_s, event['strHomeTeam'], event['strAwayTeam'])
+                r = self.session.get(url, timeout=10)
+                if r.status_code == 200:
+                    data = r.json()
+                    if data and data.get('events'):
+                        event = data['events'][0]
+                        if event.get('strStatus') == 'Match Finished':
+                            h_s = int(event.get('intHomeScore', 0))
+                            a_s = int(event.get('intAwayScore', 0))
+                            print(f"   ⚽ Result: {event['strHomeTeam']} {h_s}-{a_s} {event['strAwayTeam']}")
+                            return check_win(h_s, a_s, event['strHomeTeam'], event['strAwayTeam'])
 
             # Method 2: Search by Names
             home_norm = home_team.replace(' ', '_')
             away_norm = away_team.replace(' ', '_')
             url = f"https://www.thesportsdb.com/api/v1/json/{FOOTBALL_API_KEY}/searchevents.php?e={home_norm}_vs_{away_norm}"
-            r = requests.get(url, timeout=10)
-            data = r.json()
-            
-            if data and data.get('event'):
-                for event in data['event']:
-                    if event.get('strStatus') == 'Match Finished':
-                        h_s = int(event.get('intHomeScore', 0))
-                        a_s = int(event.get('intAwayScore', 0))
-                        print(f"   ⚽ Result: {event['strHomeTeam']} {h_s}-{a_s} {event['strAwayTeam']}")
-                        return check_win(h_s, a_s, event['strHomeTeam'], event['strAwayTeam'])
+            r = self.session.get(url, timeout=10)
+            if r.status_code == 200:
+                data = r.json()
+                if data and data.get('event'):
+                    for event in data['event']:
+                        if event.get('strStatus') == 'Match Finished':
+                            h_s = int(event.get('intHomeScore', 0))
+                            a_s = int(event.get('intAwayScore', 0))
+                            print(f"   ⚽ Result: {event['strHomeTeam']} {h_s}-{a_s} {event['strAwayTeam']}")
+                            return check_win(h_s, a_s, event['strHomeTeam'], event['strAwayTeam'])
 
             return None
         except Exception as e:
@@ -171,40 +187,51 @@ class RealOracleAgent:
     # ==================== CRYPTO ORACLE ====================
     
     def get_crypto_price(self, symbol):
-        """Get real-time crypto price from Binance or Yahoo Finance (fallback)"""
-        # Try Binance first
-        for attempt in range(2):
-            try:
-                ticker = f"{symbol}USDT"
-                url = f"https://api.binance.com/api/v3/ticker/price?symbol={ticker}"
-                r = requests.get(url, timeout=5)
-                
-                if r.status_code == 200:
-                    data = r.json()
-                    if 'price' in data:
-                        return {
-                            'symbol': symbol,
-                            'current_price': float(data['price']),
-                            'source': 'Binance'
-                        }
-                else:
-                    print(f"   ⚠️ Binance API returned status {r.status_code}: {r.text}")
-            except Exception as e:
-                time.sleep(1)
-        
-        # Fallback to Yahoo Finance (more reliable in some regions)
+        """Get real-time crypto price from Binance, CoinGecko, or Yahoo Finance"""
+        # 1. Try Binance
+        try:
+            ticker = f"{symbol}USDT"
+            url = f"https://api.binance.com/api/v3/ticker/price?symbol={ticker}"
+            r = self.session.get(url, timeout=5)
+            if r.status_code == 200:
+                data = r.json()
+                return {'symbol': symbol, 'current_price': float(data['price']), 'source': 'Binance'}
+            else:
+                print(f"   ⚠️ Binance API Blocked (Status {r.status_code})")
+        except:
+            pass
+
+        # 2. Try CoinGecko (Backup 1)
+        try:
+            ids = {'BTC': 'bitcoin', 'ETH': 'ethereum', 'SOL': 'solana'}
+            cg_id = ids.get(symbol, symbol.lower())
+            url = f"https://api.coingecko.com/api/v3/simple/price?ids={cg_id}&vs_currencies=usd"
+            r = self.session.get(url, timeout=5)
+            if r.status_code == 200:
+                data = r.json()
+                if cg_id in data:
+                    return {'symbol': symbol, 'current_price': float(data[cg_id]['usd']), 'source': 'CoinGecko'}
+        except:
+            pass
+
+        # 3. Try Yahoo Finance (Backup 2)
         try:
             print(f"   🔄 Falling back to Yahoo Finance for {symbol}...")
+            # Let yfinance handle its own session/headers as required by newer versions
             ticker = yf.Ticker(f"{symbol}-USD")
-            price = ticker.fast_info['last_price']
+            # Use fast_info if available, or just history
+            price = None
+            try:
+                price = ticker.fast_info['last_price']
+            except:
+                hist = ticker.history(period="1d")
+                if not hist.empty:
+                    price = hist['Close'].iloc[-1]
+            
             if price:
-                return {
-                    'symbol': symbol,
-                    'current_price': float(price),
-                    'source': 'YahooFinance'
-                }
+                return {'symbol': symbol, 'current_price': float(price), 'source': 'YahooFinance'}
         except Exception as e:
-            print(f"❌ Both Binance and Yahoo Finance failed for {symbol}: {e}")
+            print(f"❌ All price oracles failed for {symbol}: {e}")
             
         return None
     
@@ -218,7 +245,7 @@ class RealOracleAgent:
             
             # Binance klines API (1h candlesticks)
             url = f"https://api.binance.com/api/v3/klines?symbol={ticker}&interval=1h&startTime={int(start_timestamp * 1000)}&endTime={int(end_timestamp * 1000)}"
-            r = requests.get(url, timeout=10)
+            r = self.session.get(url, timeout=10)
             
             if r.status_code == 200:
                 data = r.json()
@@ -231,8 +258,9 @@ class RealOracleAgent:
             print(f"   ⚠️ Binance API failed or blocked. Falling back to Yahoo Finance history...", flush=True)
             
             # Fallback to Yahoo Finance Historical
+            # Let yfinance handle its own session as required
             yticker = yf.Ticker(f"{symbol}-USD")
-            # Get data around the window (yfinance history is a bit loose with timezone/exact minutes)
+            # Get data around the window 
             hist = yticker.history(period="1d", interval="1h") 
             
             if not hist.empty:
@@ -591,7 +619,7 @@ class RealOracleAgent:
                 print(f"\n📊 Summary: Created {total_created} new markets")
                 
                 # 3. Wait before next cycle
-                wait_minutes = 5
+                wait_minutes = 60
                 print(f"\n💤 Next cycle in {wait_minutes} minutes...", flush=True)
                 time.sleep(wait_minutes * 60)
                 
