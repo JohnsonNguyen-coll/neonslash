@@ -26,6 +26,7 @@ HEADERS = {
 
 # Optional: Add API keys for better data sources
 FOOTBALL_API_KEY = os.getenv('FOOTBALL_API_KEY', '3')  # TheSportsDB test key
+CMC_API_KEY = os.getenv('CMC_API_KEY', '').replace('"', '').replace("'", "").strip()
 
 ABI = [
     {"inputs":[],"name":"marketCount","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
@@ -188,7 +189,26 @@ class RealOracleAgent:
     
     def get_crypto_price(self, symbol):
         """Get real-time crypto price from Binance, CoinGecko, or Yahoo Finance"""
-        # 1. Try Binance
+        # 1. Try CoinMarketCap (Primary if key exists)
+        if CMC_API_KEY:
+            try:
+                url = "https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest"
+                params = {'symbol': symbol, 'convert': 'USD'}
+                headers = {
+                    'Accepts': 'application/json',
+                    'X-CMC_PRO_API_KEY': CMC_API_KEY,
+                }
+                r = requests.get(url, params=params, headers=headers, timeout=10)
+                if r.status_code == 200:
+                    data = r.json()
+                    price = data['data'][symbol]['quote']['USD']['price']
+                    return {'symbol': symbol, 'current_price': float(price), 'source': 'CoinMarketCap'}
+                else:
+                    print(f"   ⚠️ CoinMarketCap API Error (Status {r.status_code})")
+            except Exception as e:
+                print(f"   ⚠️ CoinMarketCap Exception: {e}")
+
+        # 2. Try Binance (Backup 1)
         try:
             ticker = f"{symbol}USDT"
             url = f"https://api.binance.com/api/v3/ticker/price?symbol={ticker}"
@@ -257,28 +277,53 @@ class RealOracleAgent:
             
             print(f"   ⚠️ Binance API failed or blocked. Falling back to Yahoo Finance history...", flush=True)
             
-            # Fallback to Yahoo Finance Historical
-            # Let yfinance handle its own session as required
-            yticker = yf.Ticker(f"{symbol}-USD")
-            # Get data around the window 
-            hist = yticker.history(period="1d", interval="1h") 
-            
-            if not hist.empty:
-                # Filter by timestamp if possible, or just check the most recent highs
-                # For safety in 2h window, we can check the max high in the last few hours
-                # Convert timestamps to UTC for comparison
-                start_dt = datetime.fromtimestamp(start_timestamp, pytz.UTC)
-                end_dt = datetime.fromtimestamp(end_timestamp, pytz.UTC)
+            try:
+                # Fallback to Yahoo Finance Historical
+                # Let yfinance handle its own session as required
+                yticker = yf.Ticker(f"{symbol}-USD")
+                # Get data around the window 
+                hist = yticker.history(period="1d", interval="1h") 
                 
-                # Filter rows between start and end
-                relevant_data = hist[(hist.index >= start_dt - timedelta(hours=1)) & (hist.index <= end_dt + timedelta(hours=1))]
-                
-                if not relevant_data.empty:
-                    max_high = relevant_data['High'].max()
-                    result = max_high >= target_price
-                    print(f"   📊 [Yahoo Fallback] {symbol} Target: ${target_price:.2f} | Max High: ${max_high:.2f} | Hit: {result}", flush=True)
-                    return result
+                if not hist.empty:
+                    # Filter by timestamp if possible, or just check the most recent highs
+                    # For safety in 2h window, we can check the max high in the last few hours
+                    # Convert timestamps to UTC for comparison
+                    start_dt = datetime.fromtimestamp(start_timestamp, pytz.UTC)
+                    end_dt = datetime.fromtimestamp(end_timestamp, pytz.UTC)
+                    
+                    # Filter rows between start and end
+                    relevant_data = hist[(hist.index >= start_dt - timedelta(hours=1)) & (hist.index <= end_dt + timedelta(hours=1))]
+                    
+                    if not relevant_data.empty:
+                        max_high = relevant_data['High'].max()
+                        result = max_high >= target_price
+                        print(f"   📊 [Yahoo Fallback] {symbol} Target: ${target_price:.2f} | Max High: ${max_high:.2f} | Hit: {result}", flush=True)
+                        return result
+            except Exception as e:
+                print(f"   ⚠️ Yahoo Fallback failed: {e}")
             
+            # 3. Final Fallback: CryptoCompare (Better than Yahoo on Cloud)
+            try:
+                print(f"   🔄 Falling back to CryptoCompare for {symbol} historical...")
+                url = f"https://min-api.cryptocompare.com/data/v2/histohour?fsym={symbol}&tsym=USD&limit=12"
+                # No key required for basic calls, but works better than scraped Yahoo
+                r = requests.get(url, timeout=10)
+                if r.status_code == 200:
+                    data = r.json()
+                    if data.get('Response') == 'Success':
+                        klines = data['Data']['Data']
+                        # Filter by timestamp
+                        matching_klines = [k for k in klines if k['time'] >= start_timestamp and k['time'] <= end_timestamp]
+                        if not matching_klines:
+                            matching_klines = klines[-12:] # Check last 12 hours as fallback
+                        
+                        max_high = max(float(k['high']) for k in matching_klines)
+                        result = max_high >= target_price
+                        print(f"   📊 [CryptoCompare Fallback] {symbol} Target: ${target_price:.2f} | Max High: ${max_high:.2f} | Hit: {result}", flush=True)
+                        return result
+            except Exception as e:
+                print(f"   ⚠️ CryptoCompare Fallback failed: {e}")
+
             return None
             
         except Exception as e:
