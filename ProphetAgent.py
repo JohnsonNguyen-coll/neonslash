@@ -333,10 +333,10 @@ class RealOracleAgent:
                 current_price = data['current_price']
                 target = round(current_price * (1 + volatility), 2)
                 
-                desc = f"Crypto: Will {name} ({symbol}) reach ${target} in next 6 hours? (Current: ${current_price})"
+                desc = f"Crypto: Will {name} ({symbol}) reach ${target:.2f} in next 6 hours? (Current: ${current_price:.2f})"
                 
                 self.deploy_market(desc, "Crypto", 21600)  # 6 hours
-                print(f"₿ Created {symbol} market: ${current_price} → ${target}")
+                print(f"₿ Created {symbol} market: ${current_price:.2f} → ${target:.2f}")
                 created += 1
                 time.sleep(2)
                 
