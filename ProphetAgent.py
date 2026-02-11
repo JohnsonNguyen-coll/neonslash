@@ -134,56 +134,62 @@ class RealOracleAgent:
 
     def resolve_football_match(self, home_team, away_team, target_team, event_id=None):
         """
-        Resolve football match using TheSportsDB data
+        Resolve football match using TheSportsDB data with Retry logic
         """
-        try:
-            print(f"   🔍 Checking match: {home_team} vs {away_team} (Target: {target_team})")
-            
-            def check_win(h_score, a_score, h_name, a_name):
-                # Normalize names for better matching
-                h_name = h_name.lower()
-                a_name = a_name.lower()
-                target = target_team.lower()
+        max_retries = 2
+        for attempt in range(max_retries + 1):
+            try:
+                print(f"   🔍 Checking match: {home_team} vs {away_team} (Target: {target_team})")
                 
-                if target in h_name:
-                    return h_score > a_score
-                elif target in a_name:
-                    return a_score > h_score
-                return False
+                def check_win(h_score, a_score, h_name, a_name):
+                    # Normalize names for better matching
+                    h_name = h_name.lower()
+                    a_name = a_name.lower()
+                    target = target_team.lower()
+                    
+                    if target in h_name:
+                        return h_score > a_score
+                    elif target in a_name:
+                        return a_score > h_score
+                    return False
 
-            # Method 1: Use Event ID
-            if event_id:
-                url = f"https://www.thesportsdb.com/api/v1/json/{FOOTBALL_API_KEY}/lookupevent.php?id={event_id}"
+                # Method 1: Use Event ID
+                if event_id:
+                    url = f"https://www.thesportsdb.com/api/v1/json/{FOOTBALL_API_KEY}/lookupevent.php?id={event_id}"
+                    r = self.session.get(url, timeout=10)
+                    if r.status_code == 200:
+                        data = r.json()
+                        if data and data.get('events'):
+                            event = data['events'][0]
+                            if event.get('strStatus') == 'Match Finished':
+                                h_s = int(event.get('intHomeScore', 0))
+                                a_s = int(event.get('intAwayScore', 0))
+                                print(f"   ⚽ Result: {event['strHomeTeam']} {h_s}-{a_s} {event['strAwayTeam']}")
+                                return check_win(h_s, a_s, event['strHomeTeam'], event['strAwayTeam'])
+
+                # Method 2: Search by Names
+                home_norm = home_team.replace(' ', '_')
+                away_norm = away_team.replace(' ', '_')
+                url = f"https://www.thesportsdb.com/api/v1/json/{FOOTBALL_API_KEY}/searchevents.php?e={home_norm}_vs_{away_norm}"
                 r = self.session.get(url, timeout=10)
                 if r.status_code == 200:
                     data = r.json()
-                    if data and data.get('events'):
-                        event = data['events'][0]
-                        if event.get('strStatus') == 'Match Finished':
-                            h_s = int(event.get('intHomeScore', 0))
-                            a_s = int(event.get('intAwayScore', 0))
-                            print(f"   ⚽ Result: {event['strHomeTeam']} {h_s}-{a_s} {event['strAwayTeam']}")
-                            return check_win(h_s, a_s, event['strHomeTeam'], event['strAwayTeam'])
+                    if data and data.get('event'):
+                        for event in data['event']:
+                            if event.get('strStatus') == 'Match Finished':
+                                h_s = int(event.get('intHomeScore', 0))
+                                a_s = int(event.get('intAwayScore', 0))
+                                print(f"   ⚽ Result: {event['strHomeTeam']} {h_s}-{a_s} {event['strAwayTeam']}")
+                                return check_win(h_s, a_s, event['strHomeTeam'], event['strAwayTeam'])
 
-            # Method 2: Search by Names
-            home_norm = home_team.replace(' ', '_')
-            away_norm = away_team.replace(' ', '_')
-            url = f"https://www.thesportsdb.com/api/v1/json/{FOOTBALL_API_KEY}/searchevents.php?e={home_norm}_vs_{away_norm}"
-            r = self.session.get(url, timeout=10)
-            if r.status_code == 200:
-                data = r.json()
-                if data and data.get('event'):
-                    for event in data['event']:
-                        if event.get('strStatus') == 'Match Finished':
-                            h_s = int(event.get('intHomeScore', 0))
-                            a_s = int(event.get('intAwayScore', 0))
-                            print(f"   ⚽ Result: {event['strHomeTeam']} {h_s}-{a_s} {event['strAwayTeam']}")
-                            return check_win(h_s, a_s, event['strHomeTeam'], event['strAwayTeam'])
-
-            return None
-        except Exception as e:
-            print(f"   ❌ Resolution Error: {e}")
-            return None
+                return None
+            except Exception as e:
+                if attempt < max_retries:
+                    print(f"   ⚠️ Football Resolution Attempt {attempt+1} failed ({e}). Retrying...")
+                    time.sleep(2)
+                else:
+                    print(f"   ❌ Football Resolution Error: {e}")
+                    return None
     
     # ==================== CRYPTO ORACLE ====================
     
@@ -302,7 +308,23 @@ class RealOracleAgent:
             except Exception as e:
                 print(f"   ⚠️ Yahoo Fallback failed: {e}")
             
-            # 3. Final Fallback: CryptoCompare (Better than Yahoo on Cloud)
+            # 3. CMC Check (Real-time fallback if Key exists)
+            # If current price is already >= target, we can resolve as YES even if we missed the exact 'hit' in history
+            if CMC_API_KEY:
+                try:
+                    print(f"   🔄 Checking CMC Current Price for {symbol} as fallback...")
+                    cmc_data = self.get_crypto_price(symbol)
+                    if cmc_data and cmc_data['source'] == 'CoinMarketCap':
+                        current_c = cmc_data['current_price']
+                        if current_c >= target_price:
+                            print(f"   📊 [CMC Fallback] {symbol} Current Price ${current_c:.2f} >= Target ${target_price:.2f} | Result: YES", flush=True)
+                            return True
+                        else:
+                            print(f"   ℹ️ [CMC Fallback] Current price ${current_c:.2f} still below target.")
+                except Exception as e:
+                    print(f"   ⚠️ CMC Fallback failed: {e}")
+
+            # 4. Final Fallback: CryptoCompare (Better than Yahoo on Cloud)
             try:
                 print(f"   🔄 Falling back to CryptoCompare for {symbol} historical...")
                 url = f"https://min-api.cryptocompare.com/data/v2/histohour?fsym={symbol}&tsym=USD&limit=12"
@@ -321,6 +343,10 @@ class RealOracleAgent:
                         result = max_high >= target_price
                         print(f"   📊 [CryptoCompare Fallback] {symbol} Target: ${target_price:.2f} | Max High: ${max_high:.2f} | Hit: {result}", flush=True)
                         return result
+                    else:
+                        print(f"   ⚠️ CryptoCompare Error: {data.get('Message', 'Unknown response')}")
+                else:
+                    print(f"   ⚠️ CryptoCompare HTTP Error: {r.status_code}")
             except Exception as e:
                 print(f"   ⚠️ CryptoCompare Fallback failed: {e}")
 
@@ -571,15 +597,25 @@ class RealOracleAgent:
                             details['target_team']
                         )
                     
-                    elif market_type == 'crypto' and is_expired:
-                        print(f"\n🎯 Market #{market_id} (Crypto)")
-                        start_time = deadline - 7200  # 2 hour window
-                        result = self.resolve_crypto_target(
-                            details['symbol'],
-                            details['target_price'],
-                            start_time,
-                            deadline
-                        )
+                    elif market_type == 'crypto':
+                        # 1. Early Win Check (Checking if target hit ANYTIME)
+                        # We use live data to see if it hit the target right now
+                        c_data = self.get_crypto_price(details['symbol'])
+                        if c_data and c_data['current_price'] >= details['target_price']:
+                            print(f"\n🎯 Market #{market_id} (Crypto) - EARLY WIN!")
+                            print(f"   🚀 Price ${c_data['current_price']:.2f} hit target ${details['target_price']:.2f}")
+                            result = True
+                        
+                        # 2. Historical Check (Only if expired and haven't found a win yet)
+                        elif is_expired:
+                            print(f"\n🎯 Market #{market_id} (Crypto) - Expired")
+                            start_time = deadline - 7200  # 2 hour window
+                            result = self.resolve_crypto_target(
+                                details['symbol'],
+                                details['target_price'],
+                                start_time,
+                                deadline
+                            )
                     
                     elif market_type == 'stock' and is_expired:
                         print(f"\n🎯 Market #{market_id} (Stock)")
