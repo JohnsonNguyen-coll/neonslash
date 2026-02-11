@@ -53,12 +53,12 @@ class RealOracleAgent:
     def fetch_live_football_fixtures(self, max_fixtures=5):
         """
         Fetch real upcoming football matches from TheSportsDB API
-        Returns list of fixtures happening in next 7 days
         """
         try:
             fixtures = []
+            seen_event_ids = set()
             
-            # Major leagues to monitor
+            # Major leagues to monitor (TheSportsDB IDs)
             leagues = {
                 'English Premier League': '4328',
                 'Spanish La Liga': '4335',
@@ -67,8 +67,7 @@ class RealOracleAgent:
                 'French Ligue 1': '4334'
             }
             
-            print(f"📡 Fetching football fixtures...")
-            seen_event_ids = set() # To prevent duplicates
+            print(f"📡 Fetching football fixtures from TheSportsDB...")
             
             for league_name, league_id in leagues.items():
                 try:
@@ -81,72 +80,61 @@ class RealOracleAgent:
                         for event in data['events']:
                             event_id = event['idEvent']
                             
-                            # Skip if we already processed this event
                             if event_id in seen_event_ids:
                                 continue
                             
                             try:
-                                # Use date objects for cleaner comparison
-                                event_date = datetime.strptime(event['dateEvent'], '%Y-%m-%d').date()
-                                today = datetime.now().date()
-                                days_until = (event_date - today).days
+                                # Use ACTUAL league from API for correct labeling
+                                actual_league = event.get('strLeague', league_name)
                                 
-                                # Matches from today up to 7 days in the future
-                                if 0 <= days_until <= 7:
-                                    # Use the ACTUAL league name from the API, not our loop variable
-                                    # This handles the case where test API keys return mismatched data
-                                    actual_league = event.get('strLeague', league_name)
-                                    
-                                    fixtures.append({
-                                        'home': event['strHomeTeam'],
-                                        'away': event['strAwayTeam'],
-                                        'league': actual_league,
-                                        'date': event['dateEvent'],
-                                        'time': event.get('strTime', '00:00:00'),
-                                        'event_id': event_id
-                                    })
-                                    seen_event_ids.add(event_id)
-                                    
-                                    if len(fixtures) >= max_fixtures:
-                                        break
-                            except Exception as e:
-                                print(f"   ⚠️ Error parsing event: {e}")
+                                fixtures.append({
+                                    'home': event['strHomeTeam'],
+                                    'away': event['strAwayTeam'],
+                                    'league': actual_league,
+                                    'date': event['dateEvent'],
+                                    'time': event.get('strTime', '00:00:00'),
+                                    'event_id': event_id
+                                })
+                                seen_event_ids.add(event_id)
+                                
+                                if len(fixtures) >= max_fixtures:
+                                    break
+                            except:
                                 continue
                     
                     if len(fixtures) >= max_fixtures:
                         break
-                        
-                    time.sleep(1)  # Rate limiting
                     
+                    time.sleep(1) # Rate limit
                 except Exception as e:
                     print(f"   ❌ Error fetching {league_name}: {e}")
-            
-            if not fixtures:
-                print("   ℹ️ No upcoming fixtures found in next 7 days")
             
             return fixtures
             
         except Exception as e:
             print(f"❌ Football API Error: {e}")
             return []
-    
+
     def resolve_football_match(self, home_team, away_team, target_team, event_id=None):
         """
-        Resolve football match using real API data
-        Returns: True if target_team won, False if target_team lost/drew, None if not finished
+        Resolve football match using TheSportsDB data
         """
         try:
             print(f"   🔍 Checking match: {home_team} vs {away_team} (Target: {target_team})")
             
-            # Helper to check if target won
             def check_win(h_score, a_score, h_name, a_name):
-                if target_team.lower() in h_name.lower():
+                # Normalize names for better matching
+                h_name = h_name.lower()
+                a_name = a_name.lower()
+                target = target_team.lower()
+                
+                if target in h_name:
                     return h_score > a_score
-                elif target_team.lower() in a_name.lower():
+                elif target in a_name:
                     return a_score > h_score
                 return False
 
-            # Method 1: Search by event ID
+            # Method 1: Use Event ID
             if event_id:
                 url = f"https://www.thesportsdb.com/api/v1/json/{FOOTBALL_API_KEY}/lookupevent.php?id={event_id}"
                 r = requests.get(url, timeout=10)
@@ -159,12 +147,11 @@ class RealOracleAgent:
                         a_s = int(event.get('intAwayScore', 0))
                         print(f"   ⚽ Result: {event['strHomeTeam']} {h_s}-{a_s} {event['strAwayTeam']}")
                         return check_win(h_s, a_s, event['strHomeTeam'], event['strAwayTeam'])
-            
-            # Method 2: Search by team names
-            home_normalized = home_team.replace(' ', '_')
-            away_normalized = away_team.replace(' ', '_')
-            
-            url = f"https://www.thesportsdb.com/api/v1/json/{FOOTBALL_API_KEY}/searchevents.php?e={home_normalized}_vs_{away_normalized}"
+
+            # Method 2: Search by Names
+            home_norm = home_team.replace(' ', '_')
+            away_norm = away_team.replace(' ', '_')
+            url = f"https://www.thesportsdb.com/api/v1/json/{FOOTBALL_API_KEY}/searchevents.php?e={home_norm}_vs_{away_norm}"
             r = requests.get(url, timeout=10)
             data = r.json()
             
@@ -175,52 +162,50 @@ class RealOracleAgent:
                         a_s = int(event.get('intAwayScore', 0))
                         print(f"   ⚽ Result: {event['strHomeTeam']} {h_s}-{a_s} {event['strAwayTeam']}")
                         return check_win(h_s, a_s, event['strHomeTeam'], event['strAwayTeam'])
-            
-            # Method 3: Reverse search
-            url = f"https://www.thesportsdb.com/api/v1/json/{FOOTBALL_API_KEY}/searchevents.php?e={away_normalized}_vs_{home_normalized}"
-            r = requests.get(url, timeout=10)
-            data = r.json()
-            
-            if data and data.get('event'):
-                for event in data['event']:
-                    if event.get('strStatus') == 'Match Finished':
-                        # Note: In reverse search, the API might return teams in original or swapped order
-                        # We use the names from the API to be safe
-                        h_s = int(event.get('intHomeScore', 0))
-                        a_s = int(event.get('intAwayScore', 0))
-                        print(f"   ⚽ Result: {event['strHomeTeam']} {h_s}-{a_s} {event['strAwayTeam']}")
-                        return check_win(h_s, a_s, event['strHomeTeam'], event['strAwayTeam'])
-            
-            print(f"   ⏳ Match not finished yet")
+
             return None
-            
         except Exception as e:
-            print(f"   ❌ Football Resolution Error: {e}")
+            print(f"   ❌ Resolution Error: {e}")
             return None
     
     # ==================== CRYPTO ORACLE ====================
     
     def get_crypto_price(self, symbol):
-        """Get real-time crypto price from Binance (with retry)"""
-        for attempt in range(3):  # 3 retries
+        """Get real-time crypto price from Binance or Yahoo Finance (fallback)"""
+        # Try Binance first
+        for attempt in range(2):
             try:
                 ticker = f"{symbol}USDT"
                 url = f"https://api.binance.com/api/v3/ticker/price?symbol={ticker}"
-                r = requests.get(url, timeout=10)
-                data = r.json()
+                r = requests.get(url, timeout=5)
                 
-                if 'price' in data:
-                    return {
-                        'symbol': symbol,
-                        'current_price': float(data['price'])
-                    }
-                
-            except Exception as e:
-                if attempt == 2:  # Last attempt
-                    print(f"❌ Binance API Error for {symbol} after 3 attempts: {e}")
+                if r.status_code == 200:
+                    data = r.json()
+                    if 'price' in data:
+                        return {
+                            'symbol': symbol,
+                            'current_price': float(data['price']),
+                            'source': 'Binance'
+                        }
                 else:
-                    time.sleep(2)  # Wait before retry
+                    print(f"   ⚠️ Binance API returned status {r.status_code}: {r.text}")
+            except Exception as e:
+                time.sleep(1)
         
+        # Fallback to Yahoo Finance (more reliable in some regions)
+        try:
+            print(f"   🔄 Falling back to Yahoo Finance for {symbol}...")
+            ticker = yf.Ticker(f"{symbol}-USD")
+            price = ticker.fast_info['last_price']
+            if price:
+                return {
+                    'symbol': symbol,
+                    'current_price': float(price),
+                    'source': 'YahooFinance'
+                }
+        except Exception as e:
+            print(f"❌ Both Binance and Yahoo Finance failed for {symbol}: {e}")
+            
         return None
     
     def resolve_crypto_target(self, symbol, target_price, start_timestamp, end_timestamp):
@@ -234,21 +219,42 @@ class RealOracleAgent:
             # Binance klines API (1h candlesticks)
             url = f"https://api.binance.com/api/v3/klines?symbol={ticker}&interval=1h&startTime={int(start_timestamp * 1000)}&endTime={int(end_timestamp * 1000)}"
             r = requests.get(url, timeout=10)
-            data = r.json()
             
-            if not isinstance(data, list) or len(data) == 0:
-                print(f"   ❌ No data from Binance for {ticker}")
-                return None
+            if r.status_code == 200:
+                data = r.json()
+                if isinstance(data, list) and len(data) > 0:
+                    max_high = max(float(candle[2]) for candle in data)  # Index 2 = High price
+                    result = max_high >= target_price
+                    print(f"   📊 {symbol} Target: ${target_price:.2f} | Actual High: ${max_high:.2f} | Hit: {result}", flush=True)
+                    return result
             
-            # Find max high in the timeframe
-            max_high = max(float(candle[2]) for candle in data)  # Index 2 = High price
+            print(f"   ⚠️ Binance API failed or blocked. Falling back to Yahoo Finance history...", flush=True)
             
-            result = max_high >= target_price
-            print(f"   📊 {symbol} Target: ${target_price:.2f} | Actual High: ${max_high:.2f} | Hit: {result}")
-            return result
+            # Fallback to Yahoo Finance Historical
+            yticker = yf.Ticker(f"{symbol}-USD")
+            # Get data around the window (yfinance history is a bit loose with timezone/exact minutes)
+            hist = yticker.history(period="1d", interval="1h") 
+            
+            if not hist.empty:
+                # Filter by timestamp if possible, or just check the most recent highs
+                # For safety in 2h window, we can check the max high in the last few hours
+                # Convert timestamps to UTC for comparison
+                start_dt = datetime.fromtimestamp(start_timestamp, pytz.UTC)
+                end_dt = datetime.fromtimestamp(end_timestamp, pytz.UTC)
+                
+                # Filter rows between start and end
+                relevant_data = hist[(hist.index >= start_dt - timedelta(hours=1)) & (hist.index <= end_dt + timedelta(hours=1))]
+                
+                if not relevant_data.empty:
+                    max_high = relevant_data['High'].max()
+                    result = max_high >= target_price
+                    print(f"   📊 [Yahoo Fallback] {symbol} Target: ${target_price:.2f} | Max High: ${max_high:.2f} | Hit: {result}", flush=True)
+                    return result
+            
+            return None
             
         except Exception as e:
-            print(f"   ❌ Crypto Resolution Error: {e}")
+            print(f"   ❌ Crypto Resolution Error (Binance & Yahoo): {e}", flush=True)
             return None
     
     # ==================== MARKET MANAGEMENT ====================
@@ -454,12 +460,12 @@ class RealOracleAgent:
             count = self.contract.functions.marketCount().call()
             now = int(time.time())
             
-            print(f"\n🔍 Scanning {count} markets for resolution...")
+            print(f"\n🔍 Scanning {count} markets for resolution...", flush=True)
             
             resolved_count = 0
             
-            # Scan backwards from newest to oldest
-            for market_id in range(count, max(0, count - 50), -1):  # Last 50 markets
+            # Scan backwards from newest to oldest - INCREASED RANGE TO 200
+            for market_id in range(count, max(0, count - 200), -1): 
                 try:
                     m = self.contract.functions.markets(market_id).call()
                     
@@ -521,7 +527,7 @@ class RealOracleAgent:
                     print(f"   ❌ Error on market #{market_id}: {e}")
                     continue
             
-            print(f"\n✅ Resolved {resolved_count} markets this cycle\n")
+            print(f"\n✅ Resolved {resolved_count} markets this cycle\n", flush=True)
             
         except Exception as e:
             print(f"❌ Resolution scan error: {e}")
@@ -585,8 +591,8 @@ class RealOracleAgent:
                 print(f"\n📊 Summary: Created {total_created} new markets")
                 
                 # 3. Wait before next cycle
-                wait_minutes = 15
-                print(f"\n💤 Next cycle in {wait_minutes} minutes...")
+                wait_minutes = 5
+                print(f"\n💤 Next cycle in {wait_minutes} minutes...", flush=True)
                 time.sleep(wait_minutes * 60)
                 
             except KeyboardInterrupt:
