@@ -2,7 +2,6 @@ import os
 import time
 import requests
 import xml.etree.ElementTree as ET
-import yfinance as yf
 from web3 import Web3
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
@@ -194,8 +193,7 @@ class RealOracleAgent:
     # ==================== CRYPTO ORACLE ====================
     
     def get_crypto_price(self, symbol):
-        """Get real-time crypto price from Binance, CoinGecko, or Yahoo Finance"""
-        # 1. Try CoinMarketCap (Primary if key exists)
+        """Get real-time crypto price from CoinMarketCap exclusively"""
         if CMC_API_KEY:
             try:
                 url = "https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest"
@@ -213,147 +211,27 @@ class RealOracleAgent:
                     print(f"   ⚠️ CoinMarketCap API Error (Status {r.status_code})")
             except Exception as e:
                 print(f"   ⚠️ CoinMarketCap Exception: {e}")
-
-        # 2. Try Binance (Backup 1)
-        try:
-            ticker = f"{symbol}USDT"
-            url = f"https://api.binance.com/api/v3/ticker/price?symbol={ticker}"
-            r = self.session.get(url, timeout=5)
-            if r.status_code == 200:
-                data = r.json()
-                return {'symbol': symbol, 'current_price': float(data['price']), 'source': 'Binance'}
-            else:
-                print(f"   ⚠️ Binance API Blocked (Status {r.status_code})")
-        except:
-            pass
-
-        # 2. Try CoinGecko (Backup 1)
-        try:
-            ids = {'BTC': 'bitcoin', 'ETH': 'ethereum', 'SOL': 'solana'}
-            cg_id = ids.get(symbol, symbol.lower())
-            url = f"https://api.coingecko.com/api/v3/simple/price?ids={cg_id}&vs_currencies=usd"
-            r = self.session.get(url, timeout=5)
-            if r.status_code == 200:
-                data = r.json()
-                if cg_id in data:
-                    return {'symbol': symbol, 'current_price': float(data[cg_id]['usd']), 'source': 'CoinGecko'}
-        except:
-            pass
-
-        # 3. Try Yahoo Finance (Backup 2)
-        try:
-            print(f"   🔄 Falling back to Yahoo Finance for {symbol}...")
-            # Let yfinance handle its own session/headers as required by newer versions
-            ticker = yf.Ticker(f"{symbol}-USD")
-            # Use fast_info if available, or just history
-            price = None
-            try:
-                price = ticker.fast_info['last_price']
-            except:
-                hist = ticker.history(period="1d")
-                if not hist.empty:
-                    price = hist['Close'].iloc[-1]
-            
-            if price:
-                return {'symbol': symbol, 'current_price': float(price), 'source': 'YahooFinance'}
-        except Exception as e:
-            print(f"❌ All price oracles failed for {symbol}: {e}")
+        else:
+            print("   ❌ CMC_API_KEY is missing!")
             
         return None
     
-    def resolve_crypto_target(self, symbol, target_price, start_timestamp, end_timestamp):
+    def resolve_crypto_target(self, symbol, target_price):
         """
-        Check if crypto hit target price using Binance historical data
-        Returns: True if hit, False if not, None if data unavailable
+        Final check for crypto target using current CMC price (no history)
+        Returns: True if current price >= target, False otherwise
         """
         try:
-            ticker = f"{symbol}USDT"
-            
-            # Binance klines API (1h candlesticks)
-            url = f"https://api.binance.com/api/v3/klines?symbol={ticker}&interval=1h&startTime={int(start_timestamp * 1000)}&endTime={int(end_timestamp * 1000)}"
-            r = self.session.get(url, timeout=10)
-            
-            if r.status_code == 200:
-                data = r.json()
-                if isinstance(data, list) and len(data) > 0:
-                    max_high = max(float(candle[2]) for candle in data)  # Index 2 = High price
-                    result = max_high >= target_price
-                    print(f"   📊 {symbol} Target: ${target_price:.2f} | Actual High: ${max_high:.2f} | Hit: {result}", flush=True)
-                    return result
-            
-            print(f"   ⚠️ Binance API failed or blocked. Falling back to Yahoo Finance history...", flush=True)
-            
-            try:
-                # Fallback to Yahoo Finance Historical
-                # Let yfinance handle its own session as required
-                yticker = yf.Ticker(f"{symbol}-USD")
-                # Get data around the window 
-                hist = yticker.history(period="1d", interval="1h") 
-                
-                if not hist.empty:
-                    # Filter by timestamp if possible, or just check the most recent highs
-                    # For safety in 2h window, we can check the max high in the last few hours
-                    # Convert timestamps to UTC for comparison
-                    start_dt = datetime.fromtimestamp(start_timestamp, pytz.UTC)
-                    end_dt = datetime.fromtimestamp(end_timestamp, pytz.UTC)
-                    
-                    # Filter rows between start and end
-                    relevant_data = hist[(hist.index >= start_dt - timedelta(hours=1)) & (hist.index <= end_dt + timedelta(hours=1))]
-                    
-                    if not relevant_data.empty:
-                        max_high = relevant_data['High'].max()
-                        result = max_high >= target_price
-                        print(f"   📊 [Yahoo Fallback] {symbol} Target: ${target_price:.2f} | Max High: ${max_high:.2f} | Hit: {result}", flush=True)
-                        return result
-            except Exception as e:
-                print(f"   ⚠️ Yahoo Fallback failed: {e}")
-            
-            # 3. CMC Check (Real-time fallback if Key exists)
-            # If current price is already >= target, we can resolve as YES even if we missed the exact 'hit' in history
-            if CMC_API_KEY:
-                try:
-                    print(f"   🔄 Checking CMC Current Price for {symbol} as fallback...")
-                    cmc_data = self.get_crypto_price(symbol)
-                    if cmc_data and cmc_data['source'] == 'CoinMarketCap':
-                        current_c = cmc_data['current_price']
-                        if current_c >= target_price:
-                            print(f"   📊 [CMC Fallback] {symbol} Current Price ${current_c:.2f} >= Target ${target_price:.2f} | Result: YES", flush=True)
-                            return True
-                        else:
-                            print(f"   ℹ️ [CMC Fallback] Current price ${current_c:.2f} still below target.")
-                except Exception as e:
-                    print(f"   ⚠️ CMC Fallback failed: {e}")
-
-            # 4. Final Fallback: CryptoCompare (Better than Yahoo on Cloud)
-            try:
-                print(f"   🔄 Falling back to CryptoCompare for {symbol} historical...")
-                url = f"https://min-api.cryptocompare.com/data/v2/histohour?fsym={symbol}&tsym=USD&limit=12"
-                # No key required for basic calls, but works better than scraped Yahoo
-                r = requests.get(url, timeout=10)
-                if r.status_code == 200:
-                    data = r.json()
-                    if data.get('Response') == 'Success':
-                        klines = data['Data']['Data']
-                        # Filter by timestamp
-                        matching_klines = [k for k in klines if k['time'] >= start_timestamp and k['time'] <= end_timestamp]
-                        if not matching_klines:
-                            matching_klines = klines[-12:] # Check last 12 hours as fallback
-                        
-                        max_high = max(float(k['high']) for k in matching_klines)
-                        result = max_high >= target_price
-                        print(f"   📊 [CryptoCompare Fallback] {symbol} Target: ${target_price:.2f} | Max High: ${max_high:.2f} | Hit: {result}", flush=True)
-                        return result
-                    else:
-                        print(f"   ⚠️ CryptoCompare Error: {data.get('Message', 'Unknown response')}")
-                else:
-                    print(f"   ⚠️ CryptoCompare HTTP Error: {r.status_code}")
-            except Exception as e:
-                print(f"   ⚠️ CryptoCompare Fallback failed: {e}")
-
+            print(f"   🔍 Resolving {symbol} via CMC (Current Price Check)...")
+            data = self.get_crypto_price(symbol)
+            if data:
+                current_price = data['current_price']
+                result = current_price >= target_price
+                print(f"   📊 {symbol} Target: ${target_price:.2f} | Current Price: ${current_price:.2f} | Result: {result}")
+                return result
             return None
-            
         except Exception as e:
-            print(f"   ❌ Crypto Resolution Error (Binance & Yahoo): {e}", flush=True)
+            print(f"   ❌ Crypto Resolution Error (CMC): {e}")
             return None
     
     # ==================== MARKET MANAGEMENT ====================
@@ -455,9 +333,9 @@ class RealOracleAgent:
                 current_price = data['current_price']
                 target = round(current_price * (1 + volatility), 2)
                 
-                desc = f"Crypto: Will {name} ({symbol}) reach ${target} in next 2 hours? (Current: ${current_price})"
+                desc = f"Crypto: Will {name} ({symbol}) reach ${target} in next 6 hours? (Current: ${current_price})"
                 
-                self.deploy_market(desc, "Crypto", 7200)  # 2 hours
+                self.deploy_market(desc, "Crypto", 21600)  # 6 hours
                 print(f"₿ Created {symbol} market: ${current_price} → ${target}")
                 created += 1
                 time.sleep(2)
@@ -607,14 +485,12 @@ class RealOracleAgent:
                             result = True
                         
                         # 2. Historical Check (Only if expired and haven't found a win yet)
+                        # NEW: User requested only CMC price at end of duration
                         elif is_expired:
                             print(f"\n🎯 Market #{market_id} (Crypto) - Expired")
-                            start_time = deadline - 7200  # 2 hour window
                             result = self.resolve_crypto_target(
                                 details['symbol'],
-                                details['target_price'],
-                                start_time,
-                                deadline
+                                details['target_price']
                             )
                     
                     elif market_type == 'stock' and is_expired:
@@ -700,7 +576,7 @@ class RealOracleAgent:
                 print(f"\n📊 Summary: Created {total_created} new markets")
                 
                 # 3. Wait before next cycle
-                wait_minutes = 60
+                wait_minutes = 360
                 print(f"\n💤 Next cycle in {wait_minutes} minutes...", flush=True)
                 time.sleep(wait_minutes * 60)
                 

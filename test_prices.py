@@ -1,47 +1,40 @@
-import yfinance as yf
+import os
 import requests
+from dotenv import load_dotenv
+
+# Load environment variables
+if os.path.exists('./frontend/.env.local'):
+    load_dotenv(dotenv_path='./frontend/.env.local')
+else:
+    load_dotenv()
+
+CMC_API_KEY = os.getenv('CMC_API_KEY', '').replace('"', '').replace("'", "").strip()
 
 def test_prices():
     symbol = "BTC"
-    print(f"Testing {symbol}...")
+    print(f"Testing {symbol} via CoinMarketCap...")
     
-    # 1. Binance
-    try:
-        url = f"https://api.binance.com/api/v3/ticker/price?symbol={symbol}USDT"
-        r = requests.get(url, timeout=5)
-        print(f"Binance Status: {r.status_code}")
-        if r.status_code == 200:
-            print(f"Binance Price: {r.json()['price']}")
-    except Exception as e:
-        print(f"Binance Error: {e}")
+    if not CMC_API_KEY:
+        print("❌ Error: CMC_API_KEY is missing from environment!")
+        return
 
-    # 2. CoinGecko
     try:
-        url = f"https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd"
-        r = requests.get(url, timeout=5)
-        print(f"CoinGecko Status: {r.status_code}")
+        url = "https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest"
+        params = {'symbol': symbol, 'convert': 'USD'}
+        headers = {
+            'Accepts': 'application/json',
+            'X-CMC_PRO_API_KEY': CMC_API_KEY,
+        }
+        r = requests.get(url, params=params, headers=headers, timeout=10)
+        print(f"CMC Status: {r.status_code}")
         if r.status_code == 200:
-            print(f"CoinGecko Price: {r.json()}")
-    except Exception as e:
-        print(f"CoinGecko Error: {e}")
-
-    # 3. Yahoo Finance
-    try:
-        print("Testing Yahoo Finance...")
-        ticker = yf.Ticker(f"{symbol}-USD")
-        hist = ticker.history(period="1d")
-        if not hist.empty:
-            print(f"Yahoo Price (History): {hist['Close'].iloc[-1]}")
+            data = r.json()
+            price = data['data'][symbol]['quote']['USD']['price']
+            print(f"✅ CMC Price: ${price:.2f}")
         else:
-            print("Yahoo History Empty")
-            
-        try:
-            print(f"Yahoo Fast Info: {ticker.fast_info['last_price']}")
-        except Exception as e:
-            print(f"Yahoo Fast Info Error: {e}")
-            
+            print(f"❌ CMC API Error: {r.text}")
     except Exception as e:
-        print(f"Yahoo Error: {e}")
+        print(f"❌ Exception: {e}")
 
 if __name__ == "__main__":
     test_prices()
