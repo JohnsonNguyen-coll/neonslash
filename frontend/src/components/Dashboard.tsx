@@ -180,9 +180,35 @@ const PredictionCard = ({ id, market, showNotification, userPoints, refetchMarke
       {!market.resolved && !isExpired && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
           <div style={{ background: 'rgba(0,0,0,0.2)', padding: '1rem', borderRadius: '12px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.8rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.8rem', alignItems: 'center' }}>
                 <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Amount to Predict</span>
-                <span className="neon-yellow" style={{ fontWeight: 800 }}>{betAmount} PTS</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <input 
+                    type="number"
+                    min="1"
+                    max={userPoints}
+                    value={betAmount}
+                    onChange={e => {
+                      const val = Number(e.target.value)
+                      if (val > userPoints) setBetAmount(userPoints)
+                      else if (val < 1) setBetAmount(1)
+                      else setBetAmount(val)
+                    }}
+                    style={{
+                      background: 'rgba(255,255,255,0.05)',
+                      border: '1px solid rgba(245, 158, 11, 0.3)',
+                      borderRadius: '6px',
+                      color: '#f59e0b',
+                      fontSize: '0.8rem',
+                      fontWeight: 800,
+                      width: '80px',
+                      textAlign: 'right',
+                      padding: '2px 8px',
+                      outline: 'none',
+                    }}
+                  />
+                  <span className="neon-yellow" style={{ fontSize: '0.7rem', fontWeight: 800 }}>PTS</span>
+                </div>
             </div>
             <input
               type="range"
@@ -193,8 +219,8 @@ const PredictionCard = ({ id, market, showNotification, userPoints, refetchMarke
               style={{ width: '100%', accentColor: '#f59e0b', cursor: 'pointer' }}
             />
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.6rem', color: 'var(--text-muted)', marginTop: '0.4rem' }}>
-                <span>1 Pt</span>
-                <span>Max: {userPoints} Pts</span>
+                <span style={{ cursor: 'pointer' }} onClick={() => setBetAmount(1)}>Min: 1 Pt</span>
+                <span style={{ cursor: 'pointer' }} onClick={() => setBetAmount(userPoints)}>Max: {userPoints} Pts</span>
             </div>
           </div>
           <div style={{ display: 'flex', gap: '0.5rem' }}>
@@ -437,6 +463,8 @@ const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void }) => {
         .close-notify { background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 0.2rem; display: flex; align-items: center; justify-content: center; }
         .admin-panel input, .admin-panel select { width: 100%; background: rgba(0,0,0,0.3); border: 1px solid var(--border); padding: 0.8rem; border-radius: 8px; color: white; margin-top: 0.4rem; }
         .form-group label { font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; }
+        input::-webkit-outer-spin-button, input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+        input[type=number] { -moz-appearance: textfield; }
         @media (max-width: 1024px) { .dashboard-grid { grid-template-columns: 1fr; } .cards-layout { grid-template-columns: 1fr; } }
       `}</style>
     </div>
