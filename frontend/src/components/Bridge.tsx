@@ -133,7 +133,7 @@ const Bridge = () => {
               style={{ background: 'none', border: 'none', fontSize: '2.5rem', color: 'white', fontWeight: 800, width: '100%', outline: 'none' }}
             />
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.6rem 1.2rem', background: 'rgba(255,255,255,0.08)', borderRadius: '100px', border: '1px solid rgba(255,255,255,0.1)' }}>
-              <img src="https://cryptologos.cc/logos/usd-coin-usdc-logo.png" width="24" alt="usdc" />
+              <img src="https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48/logo.png" width="24" alt="usdc" />
               <span style={{ fontWeight: 800 }}>USDC</span>
             </div>
           </div>
