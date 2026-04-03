@@ -161,7 +161,7 @@ const PredictionCard = ({ id, market, showNotification, userPoints, refetchMarke
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem' }}>
         <span className="badge-green badge">{market.category}</span>
         <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-          {market.resolved ? "Market Resolved" : isExpired ? "Awaiting Resolution" : `Ends: ${new Date(Number(market.deadline) * 1000).toLocaleDateString()}`}
+          {market.resolved ? "Market Resolved" : isExpired ? "Awaiting Resolution" : `Ends: ${new Date(Number(market.deadline) * 1000).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}`}
         </span>
       </div>
       <h3 style={{ fontSize: '1.1rem', marginBottom: '1.5rem', lineHeight: 1.4 }}>{market.description}</h3>
@@ -249,7 +249,8 @@ const PredictionCard = ({ id, market, showNotification, userPoints, refetchMarke
       )}
       {!market.resolved && isExpired && (
          <div style={{ textAlign: 'center', padding: '1rem', background: 'rgba(255,255,255,0.05)', borderRadius: '12px', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-            The event has ended. Waiting for the Prophet Agent to verify the result...
+            <div style={{ marginBottom: '0.4rem', color: '#f59e0b', fontWeight: 600 }}>Betting Closed</div>
+            The match is in progress or evaluating. Waiting for the Prophet Agent to confirm the final score...
          </div>
       )}
     </motion.div>

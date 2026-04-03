@@ -108,7 +108,7 @@ class RealOracleAgent:
                                     'away': event['strAwayTeam'],
                                     'league': actual_league,
                                     'date': event['dateEvent'],
-                                    'time': event.get('strTime', '00:00:00'),
+                                    'time': event.get('strTime') or '22:00:00', # Default to late evening if time missing
                                     'event_id': event_id
                                 })
                                 seen_event_ids.add(event_id)
@@ -282,10 +282,14 @@ class RealOracleAgent:
             try:
                 # Use UTC for duration calculation to match API data
                 now_utc = datetime.now(pytz.UTC)
+                # Standardize match time parsing
+                clean_time = fixture['time'].split('+')[0].strip() # Handle '15:00:00+00:00'
                 match_datetime = pytz.UTC.localize(datetime.strptime(
-                    f"{fixture['date']} {fixture['time']}", 
+                    f"{fixture['date']} {clean_time}", 
                     '%Y-%m-%d %H:%M:%S'
                 ))
+                
+                # Market should end 3 hours after start (covering match duration + buffer)
                 duration = int((match_datetime + timedelta(hours=3) - now_utc).total_seconds())
                 
                 if duration > 0:
@@ -576,7 +580,7 @@ class RealOracleAgent:
                 print(f"\n📊 Summary: Created {total_created} new markets")
                 
                 # 3. Wait before next cycle
-                wait_minutes = 360
+                wait_minutes = 30 # Run every 30 minutes for faster resolution
                 print(f"\n💤 Next cycle in {wait_minutes} minutes...", flush=True)
                 time.sleep(wait_minutes * 60)
                 
